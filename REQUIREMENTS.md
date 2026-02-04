@@ -43,6 +43,9 @@ Goal: Reduce friction by parsing messy text into structured data ready for revie
 - Parse, display, edit (same as above)
 - Push to Google Sheets via API (append only, never delete)
 
+### Future scope (not first iteration)
+- **Request/need tracking:** Parser detects requests ("need for 80 aluminum pans") and outputs to a separate list from transactions. Same item resolution and alias handling. Potentially includes priority ranking. Separate table/output from transaction data.
+
 ---
 
 ## 4. Data Schema

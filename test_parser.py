@@ -163,8 +163,9 @@ They should be runnable as actual tests once the parser is implemented.
 #   - QTY is positive (items entering warehouse)
 #   - Container: "boxes" — convert if conversion known
 #
-# NOTE: Is this supplier_to_warehouse or a different trans_type?
-# The "+" and "gathered into" suggest receiving, but source isn't specified.
+# RESOLVED: TRANS_TYPE is ambiguous here. Parser should present best guess
+# but flag for user to confirm. Source isn't specified so we can't distinguish
+# supplier_to_warehouse from between_warehouses or a return from a branch.
 
 
 # === Test 8: Partial withdrawal ===
@@ -180,8 +181,8 @@ They should be runnable as actual tests once the parser is implemented.
 #   - Y (the total/original count) goes into NOTES as useful context
 #   - TRANS_TYPE and VEHICLE_SUB_UNIT are ambiguous — needs user input
 #
-# OPEN QUESTION: What trans_type is "took 5 out of 9 carrots"?
-# Is it warehouse_to_branch? eaten? Does it depend on context?
+# RESOLVED: TRANS_TYPE is ambiguous — parser should present what it can
+# (item, qty) and flag TRANS_TYPE + VEHICLE_SUB_UNIT for user to fill in.
 
 
 # === Test 9: Request / need (not a transaction) ===
@@ -190,9 +191,15 @@ They should be runnable as actual tests once the parser is implemented.
 #   A need for 80 aluminum pans and 10000 amall potatoes
 #
 # Expected behavior:
-#   - This is a REQUEST, not an actual transaction
-#   - Should it be parsed into rows with a special trans_type like "request"?
-#   - Or flagged as non-transactional and skipped?
-#   - Typo: "amall potatoes" → "small potatoes"
+#   - Parser detects this as a REQUEST, not a transaction
+#   - Parses items and quantities (typo: "amall potatoes" → "small potatoes")
+#   - Outputs to a SEPARATE request list, not the transaction table
+#   - Still corrects typos, resolves aliases, converts units
 #
-# OPEN QUESTION: How should requests/needs be handled?
+# Exercises:
+#   - "need for" pattern → detected as request
+#   - Multiple items in one line ("X and Y")
+#   - Typo correction in request context
+#
+# RESOLVED: Requests are a real feature but lower priority. They go to a
+# separate output from transactions. Not in first iteration scope.
