@@ -103,11 +103,15 @@ Three transaction types don't require double-entry:
 - Math expressions: "2x17" → 34, "11*920" → 10120
 - Unit shortcuts during editing: possibly "5b" = 5 boxes
 
-**Container/unit types:**
+**Container/unit types and conversion:**
 - A single item may have multiple container types (e.g., "small box" vs "large box" of cherry tomatoes)
 - Learn container types as they come up (similar to alias learning)
 - If ambiguous which container type is meant, ask the user for clarification
 - Store learned container types per item in config
+- Each item has a base unit (e.g., count); QTY is always stored in the base unit
+- Conversion factors are stored per item per container type (e.g., 1 box of small potatoes = 920 count)
+- If conversion factor is known, auto-convert (e.g., "8 boxes" → QTY=7360)
+- If conversion factor is unknown, ask the user and save for future reuse
 
 **Dates:**
 - Various formats: "15.3.25", "3/16/25"
@@ -140,7 +144,7 @@ Example: "passed 34 spaghetti to L"
 
 **Rules:**
 - Default source = warehouse (unless explicitly stated)
-- Batch ID = auto-incrementing integer, assigned by destination within same message
+- Batch ID = auto-incrementing integer, new batch on change of destination OR date
 - Transfer transactions must sum to zero per batch (sanity check)
 - Non-zero-sum transactions (starting_point, eaten, recount without "lost") are single-row
 
@@ -241,13 +245,14 @@ learned_aliases:
   cherry tom: cherry tomatoes
   ...
 
-container_types:
+unit_conversions:
   cherry tomatoes:
-    - small box
-    - large box
+    base_unit: count
+    small box: 990    # 1 small box = 990 count
+    large box: 1980
   small potatoes:
-    - box
-    - bag
+    base_unit: count
+    box: 920
   ...
 ```
 
