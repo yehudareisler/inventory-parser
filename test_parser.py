@@ -203,3 +203,62 @@ They should be runnable as actual tests once the parser is implemented.
 #
 # RESOLVED: Requests are a real feature but lower priority. They go to a
 # separate output from transactions. Not in first iteration scope.
+
+
+# === Test 10: Edited message with WhatsApp metadata ===
+#
+# Input:
+#   8 boxes of small pot to C <This message was edited>
+#
+# Expected output:
+#   DATE=today  INV_TYPE=small potatoes  QTY=-8  TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=warehouse  BATCH=1
+#   DATE=today  INV_TYPE=small potatoes  QTY=+8  TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=C          BATCH=1
+#
+# Exercises:
+#   - Strip WhatsApp metadata ("<This message was edited>")
+#   - Abbreviation: "small pot" → "small potatoes"
+#   - Normal transfer parsing after metadata removal
+#   - Container: "boxes" — convert if conversion known
+
+
+# === Test 11: Item list with no context ===
+#
+# Input:
+#   4 froot loops
+#   189 cornflakes
+#   117 cheerios
+#   3 cocoa puffs
+#   1 trix
+#
+# Expected output:
+#   DATE=???  INV_TYPE=froot loops   QTY=4    TRANS_TYPE=???  VEHICLE_SUB_UNIT=???  BATCH=1
+#   DATE=???  INV_TYPE=cornflakes    QTY=189  TRANS_TYPE=???  VEHICLE_SUB_UNIT=???  BATCH=1
+#   DATE=???  INV_TYPE=cheerios      QTY=117  TRANS_TYPE=???  VEHICLE_SUB_UNIT=???  BATCH=1
+#   DATE=???  INV_TYPE=cocoa puffs   QTY=3    TRANS_TYPE=???  VEHICLE_SUB_UNIT=???  BATCH=1
+#   DATE=???  INV_TYPE=trix          QTY=1    TRANS_TYPE=???  VEHICLE_SUB_UNIT=???  BATCH=1
+#
+# Exercises:
+#   - No header line — no date, no truck, no transaction type
+#   - Parser extracts what it can (items + quantities)
+#   - All other fields flagged for user to fill in
+#   - All items grouped in one batch (same implicit context)
+
+
+# === Test 12: Fractional container transfer ===
+#
+# Input:
+#   passed half a box of cherry tomatoes to L
+#
+# Expected output:
+#   DATE=today  INV_TYPE=cherry tomatoes  QTY=-990   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=warehouse  BATCH=1
+#   DATE=today  INV_TYPE=cherry tomatoes  QTY=+990   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=L          BATCH=1
+#
+# Exercises:
+#   - Fractional container: "half a box" → 0.5 * box conversion
+#   - If box→count conversion known (1 box = 1980), QTY = 990
+#   - If conversion unknown, ask user
+#   - "passed X to Y" → warehouse_to_branch with double-entry
+#
+# NOTE: Low priority — parser may optionally flag fractional containers
+# with extra confidence warning since "half" is imprecise. But user
+# reviews everything anyway so not critical.
