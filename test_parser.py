@@ -262,3 +262,71 @@ They should be runnable as actual tests once the parser is implemented.
 # NOTE: Low priority — parser may optionally flag fractional containers
 # with extra confidence warning since "half" is imprecise. But user
 # reviews everything anyway so not critical.
+
+
+# === Test 13: Communication note (not inventory) ===
+#
+# Input:
+#   Rimon to N via naor by phone
+#
+# Expected behavior:
+#   - Not a transaction, not a request
+#   - Save as an unstructured note (preserved for reference)
+#   - No rows generated in the transaction table
+#
+# Exercises:
+#   - Parser recognizes this has no quantity, no item → not a transaction
+#   - Doesn't crash or produce garbage rows
+#   - Content is preserved as a note, not silently discarded
+
+
+# === Test 14: Cryptic numbers without context ===
+#
+# Input:
+#   4 82 95 3 1
+#      37 19
+#      70 3
+#
+# Expected behavior:
+#   - Unparseable — numbers without item names or context
+#   - Warn: "Could not parse this section"
+#   - Display the raw text
+#   - Offer option to EDIT the raw text and retry parsing
+#     (user could add "these are cereals" or rewrite it entirely)
+#
+# Exercises:
+#   - Graceful failure on ambiguous input
+#   - Edit-and-retry workflow (user adds context, re-submits)
+#
+# NOTE: The tool processes one message at a time. It does NOT look at
+# subsequent messages for context. If the user later pastes "these are
+# the numbers of cereals", that's a separate parse. The user can instead
+# edit this message to add that context before retrying.
+
+
+# === Test 15: Mixed destinations in one paste ===
+#
+# Input:
+#   passed 2x 17 spagetti noodles to L
+#   passed half a box of cherry tomatoes to L
+#   14 box of spuds to C
+#
+# Expected output:
+#   Batch 1 (to L):
+#   DATE=today  INV_TYPE=spaghetti        QTY=-34   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=warehouse  BATCH=1
+#   DATE=today  INV_TYPE=spaghetti        QTY=+34   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=L          BATCH=1
+#   DATE=today  INV_TYPE=cherry tomatoes  QTY=-990  TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=warehouse  BATCH=1
+#   DATE=today  INV_TYPE=cherry tomatoes  QTY=+990  TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=L          BATCH=1
+#
+#   Batch 2 (to C):
+#   DATE=today  INV_TYPE=small potatoes   QTY=-14   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=warehouse  BATCH=2
+#   DATE=today  INV_TYPE=small potatoes   QTY=+14   TRANS_TYPE=warehouse_to_branch  VEHICLE_SUB_UNIT=C          BATCH=2
+#
+# Exercises:
+#   - Two destinations in one paste → two batches
+#   - Same destination (L) groups into one batch
+#   - Math: "2x 17" → 34 (space between multiplier and value)
+#   - Alias: "spagetti" → "spaghetti", "spuds" → "small potatoes"
+#   - Fractional container: "half a box" (conversion if known)
+#   - Container: "14 box" = 14 boxes (convert if known)
+#   - Double-entry for all three transfers
