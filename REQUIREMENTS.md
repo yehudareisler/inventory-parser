@@ -273,69 +273,13 @@ container_types:
 
 ---
 
-## 12. Example Test Cases (to be expanded)
+## 12. Test Cases
 
-### Test 1: Simple consumption
-**Input:**
-```
-eaten by L 15.3.25
-2 small boxes cherry tomatoes
-4 cucumbers
-```
-**Expected output:**
-```
-| DATE    | INV_TYPE        | QTY | TRANS_TYPE | VEHICLE_SUB_UNIT | BATCH |
-|---------|-----------------|-----|------------|------------------|-------|
-| 15.3.25 | cherry tomatoes | 2   | eaten      | L                | 001   |
-| 15.3.25 | cucumbers       | 4   | eaten      | L                | 001   |
-```
-
-### Test 2: Transfer with math expression
-**Input:**
-```
-passed 2x17 spaghetti noodles to L
-```
-**Expected output:**
-```
-| DATE  | INV_TYPE  | QTY | TRANS_TYPE          | VEHICLE_SUB_UNIT | BATCH |
-|-------|-----------|-----|---------------------|------------------|-------|
-| today | spaghetti | -34 | warehouse_to_branch | warehouse        | 001   |
-| today | spaghetti | +34 | warehouse_to_branch | L                | 001   |
-```
-
-### Test 3: Multiple destinations
-**Input:**
-```
-8 boxes of small pot to C
-7 boxes of small potatoes to L
-```
-**Expected output:**
-```
-| DATE  | INV_TYPE       | QTY | TRANS_TYPE          | VEHICLE_SUB_UNIT | BATCH |
-|-------|----------------|-----|---------------------|------------------|-------|
-| today | small potatoes | -8  | warehouse_to_branch | warehouse        | 001   |
-| today | small potatoes | +8  | warehouse_to_branch | C                | 001   |
-| today | small potatoes | -7  | warehouse_to_branch | warehouse        | 002   |
-| today | small potatoes | +7  | warehouse_to_branch | L                | 002   |
-```
-
-### Test 4: Unparseable input
-**Input:**
-```
-4 82 95 3 1
-   37 19
-   70 3
-```
-**Expected behavior:**
-- Warn: "Could not parse this section"
-- Display the text
-- Offer option to edit and retry
+All test cases live in `test_parser.py` (single source of truth).
 
 ---
 
 ## Next Steps
 
-1. Review this requirements doc together
-2. Refine and add more test cases
-3. Write Python test file with example interactions
-4. Implement the short-term desktop tool
+1. Expand test cases in `test_parser.py`
+2. Implement the short-term desktop tool
