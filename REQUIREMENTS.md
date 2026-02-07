@@ -86,24 +86,65 @@ Three transaction types don't require double-entry:
 
 ## 5. Parsing Requirements
 
-### Input formats
-- Free-form text (WhatsApp message style)
-- May contain multiple lines
-- May reference multiple trucks/branches in one message
+### Input format
+- Loose structure — parts (qty, item, destination, action verb) can appear in any order
+- Parser identifies parts by matching against configurable term lists
+- NOT fully freeform prose — there's an expected set of tokens, but order is flexible
+- Multi-line input: each line parsed independently, then context is broadcast (see below)
+
+### Part identification
+
+The parser tokenizes each line and identifies parts by matching against config:
+
+- **Quantity**: numbers, math expressions (`2x17`, `11*920`), fractions (`half`)
+  - If no quantity found but a known item is found, default qty = 1
+- **Item**: matched against canonical item list + learned aliases (fuzzy for typos)
+- **Destination/source**: matched against location list (`L`, `C`, `N`, `warehouse`, etc.)
+- **Action verb**: matched against configurable verb lists per transaction type
+
+### Action verb lists (configurable)
+
+```yaml
+action_verbs:
+  warehouse_to_branch: [passed, gave, sent, delivered]
+  supplier_to_warehouse: [received, got]
+  eaten: [eaten, consumed, used]
+  # no verb → default action (warehouse_to_branch)
+```
+
+All verb lists live in config. User can edit them in one central location.
+
+### Parse outcome classification
+
+Each line falls into one of three categories:
+
+1. **Successful parse**: qty + known item identified → generate rows
+2. **Partial parse**: qty or known item found, but something is missing/unknown → generate rows with warnings (⚠ flags on unknown fields)
+3. **Note**: no qty AND no known item → suggest saving as a note
+
+### Context broadcasting
+
+When parsing multi-line input:
+- Context (destination, source, date, action verb) is extracted from every line
+- Lines without their own context inherit from the **last seen** value
+- Lines with explicit context keep their own
+- A note line can still contribute context (e.g., "Rimon to N via naor by phone" provides destination N)
+- Batch number changes when destination changes
 
 ### The parser must handle:
 
 **Item name variations:**
-- Misspellings: "smalal potatoes" → "small potatoes"
-- Nicknames: "spuds" → "small potatoes"
-- Abbreviations: "small pot" → "small potatoes"
-- System learns aliases over time (no predefined alias list)
+- Misspellings: "smalal potatoes" → "small potatoes" (fuzzy match)
+- Abbreviations: "small pot" → "small potatoes" (prefix/substring match)
+- Nicknames: "spuds" → "small potatoes" (only if previously learned as alias)
+- Unrecognized items: flagged with ⚠, user corrects during review
 - Output always uses canonical names
 
 **Quantities:**
 - Plain numbers: "4 cucumbers"
 - With units: "8 boxes", "2 small boxes", "half a box"
 - Math expressions: "2x17" → 34, "11*920" → 10120
+- Default qty = 1 when item is recognized but no number present
 - Unit shortcuts during editing: possibly "5b" = 5 boxes
 
 **Container/unit types and conversion:**
@@ -122,14 +163,19 @@ Three transaction types don't require double-entry:
 - Fall back to current time if no date specified
 
 **Transaction type inference:**
+- Determined by action verb matching against configurable verb lists
 - "eaten by L" → TRANS_TYPE = eaten, VEHICLE_SUB_UNIT = L
 - "to C" → TRANS_TYPE = warehouse_to_branch (default source = warehouse)
 - "from supplier" → TRANS_TYPE = supplier_to_warehouse
 - "gathered into warehouse" → receiving at warehouse
+- No verb → default transaction type (configurable, default: warehouse_to_branch)
 
 **Multi-entity messages:**
 - "truck A: 3 items... truck B: 4 items..." → separate by entity
 - Infer entity scope from context
+
+**WhatsApp metadata:**
+- Strip known metadata patterns (e.g., `<This message was edited>`) before parsing
 
 ---
 
@@ -155,13 +201,47 @@ Example: "passed 34 spaghetti to L"
 
 ## 7. UX / Interaction Model
 
-### Display
-Compact table view:
+### Overall flow
+
+Every parse goes through review. No auto-commit.
+
 ```
-[1] 3/19 | spaghetti     | -34  | warehouse_to_branch | warehouse | batch_001
-[2] 3/19 | spaghetti     | +34  | warehouse_to_branch | L         | batch_001
-[3] 3/19 | cherry tom    | -0.5 | warehouse_to_branch | warehouse | batch_001
-[4] 3/19 | cherry tom    | +0.5 | warehouse_to_branch | L         | batch_001
+paste message → parse → review → edit if needed → confirm → done
+```
+
+### Parse result display
+
+Three possible outcomes after parsing:
+
+**1. Successful parse — table shown:**
+```
+[1] today | spaghetti | -34 | warehouse_to_branch | warehouse | 1
+[2] today | spaghetti | +34 | warehouse_to_branch | L         | 1
+[c]onfirm / [e]dit / [q]uit
+```
+
+**2. Partial parse — table with warnings:**
+```
+[1] today | ⚠ spud | -1 | warehouse_to_branch | warehouse | 1
+[2] today | ⚠ spud | +1 | warehouse_to_branch | C         | 1
+
+⚠ Unknown item: "spud"
+[c]onfirm / [e]dit / [q]uit
+```
+
+**3. Not a transaction — note suggestion:**
+```
+⚠ Could not parse as transaction (no quantity, no known item)
+Save as [n]ote / [e]dit and retry / [s]kip
+```
+
+Notes extracted alongside transactions are shown below the table:
+```
+[1] today | cucumber       | -1 | warehouse_to_branch | warehouse | 1
+[2] today | cucumber       | +1 | warehouse_to_branch | N         | 1
+
+📝 Note: "Rimon to N via naor by phone"
+[c]onfirm / [e]dit / [q]uit
 ```
 
 ### Editing (minimal keystrokes)
@@ -193,20 +273,31 @@ Single keypress to select.
 - `+` = add new row
 - `c` = confirm and proceed
 
-### Error handling for unparseable input
-- Skip unparseable sections
-- Warn user with the unparseable text shown
-- Option to edit the raw text and retry parsing
+### Edit and retry (raw text)
+
+When input is fully unparseable:
+- User can edit the raw text and re-submit for parsing
+- If the user changes a token (e.g., replaces "spuds" with "small potatoes") while the rest of the line structure stays the same, prompt to save as alias
+
+### Alias learning during review
+
+When the user corrects an unknown item during review (either via field edit or raw text edit-and-retry):
+1. Compare original token to the corrected canonical name
+2. If the line structure remained the same (item substitution only, even if multiple fields changed), prompt:
+   ```
+   Save "spuds" → "small pototes"? [y/n]
+   ```
+3. If yes, alias is stored in config for future use
+4. Editing item on one row of a double-entry pair auto-updates the other row
 
 ---
 
 ## 8. Alias Learning
 
 - User maintains a config file with ~50 canonical item names
-- When parser encounters unknown term:
-  1. Fuzzy match against canonical names
-  2. Suggest best match
-  3. If user confirms/corrects, store the alias
+- **Typos** (close to a canonical name): fuzzy-matched automatically (e.g., "spagetti" → "spaghetti")
+- **Abbreviations** (prefix of canonical name): matched automatically (e.g., "small pot" → "small potatoes")
+- **Nicknames** (unrelated words): NOT auto-matched. Parser flags as unknown item. User corrects during review, then prompted to save as alias.
 - Aliases stored in config file for future use
 - Canonical names are the only values that appear in output
 
