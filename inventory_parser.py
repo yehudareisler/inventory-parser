@@ -1,0 +1,557 @@
+"""Inventory message parser.
+
+Parses messy WhatsApp-style messages into structured inventory transactions.
+"""
+
+import re
+from dataclasses import dataclass, field
+from datetime import date
+from difflib import get_close_matches
+
+
+# ============================================================
+# Public API
+# ============================================================
+
+@dataclass
+class ParseResult:
+    rows: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
+    unparseable: list = field(default_factory=list)
+
+
+def parse(text, config, today=None):
+    if today is None:
+        today = date.today()
+
+    text = _strip_metadata(text)
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    parsed = [_parse_line(line, config) for line in lines]
+    merged = _merge_lines(parsed, config)
+    _broadcast_context(merged)
+    return _generate_result(merged, config, today)
+
+
+# ============================================================
+# Preprocessing
+# ============================================================
+
+_METADATA_PATTERNS = [
+    re.compile(r'<This message was edited>', re.IGNORECASE),
+    re.compile(r'<Media omitted>', re.IGNORECASE),
+]
+
+
+def _strip_metadata(text):
+    for pattern in _METADATA_PATTERNS:
+        text = pattern.sub('', text)
+    return text.strip()
+
+
+# ============================================================
+# Line parsing
+# ============================================================
+
+def _parse_line(text, config):
+    r = {
+        'raw': text,
+        'qty': None, 'item': None, 'item_raw': None,
+        'container': None, 'trans_type': None,
+        'location': None, 'direction': None,
+        'date': None, 'notes_extra': None,
+        'has_qty': False, 'has_item': False,
+    }
+
+    remaining = text
+
+    # Strip leading +/-
+    remaining = re.sub(r'^\s*[+\-]\s*', '', remaining).strip()
+
+    # Special pattern: "took X out of Y [item]"
+    took = re.match(r'took\s+(\d+)\s+out\s+of\s+(\d+)\s+(.+)', remaining, re.IGNORECASE)
+    if took:
+        r['qty'] = int(took.group(1))
+        r['has_qty'] = True
+        r['notes_extra'] = f'had {took.group(2)} total'
+        item, raw = _match_item(took.group(3).strip(), config)
+        if item:
+            r['item'], r['item_raw'], r['has_item'] = item, raw, True
+        return r
+
+    # Extract date
+    date_val, remaining = _extract_date(remaining)
+    if date_val:
+        r['date'] = date_val
+
+    # Extract location with direction
+    loc, direction, remaining = _extract_location(remaining, config)
+    if loc:
+        r['location'], r['direction'] = loc, direction
+
+    # Extract action verb
+    trans_type, remaining = _extract_verb(remaining, config)
+    if trans_type:
+        r['trans_type'] = trans_type
+
+    # Extract supplier info ("from [name]") if relevant
+    if 'from' in remaining.lower():
+        supplier, remaining = _extract_supplier_info(remaining, config)
+        if supplier:
+            r['notes_extra'] = f'from {supplier}'
+
+    # Extract quantity + container
+    qty, container, remaining = _extract_qty(remaining, config)
+    if qty is not None:
+        r['qty'], r['has_qty'] = qty, True
+    if container:
+        r['container'] = container
+
+    # Clean up remaining text and match item
+    remaining = _remove_filler(remaining)
+    if remaining.strip():
+        item, raw = _match_item(remaining, config)
+        if item:
+            r['item'], r['item_raw'], r['has_item'] = item, raw, True
+
+    # Apply container conversion if we have item + container + qty
+    if r['item'] and r['container'] and r['qty'] is not None:
+        converted = _convert_container(r['item'], r['container'], r['qty'], config)
+        if converted is not None:
+            r['qty'] = converted
+            r['container'] = None
+
+    return r
+
+
+# ============================================================
+# Extraction helpers
+# ============================================================
+
+def _extract_date(text):
+    # DD.M.YY or DD.MM.YYYY
+    m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b', text)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if year < 100:
+            year += 2000
+        remaining = (text[:m.start()] + text[m.end():]).strip()
+        try:
+            return date(year, month, day), remaining
+        except ValueError:
+            pass
+    # M/DD/YY
+    m = re.search(r'\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b', text)
+    if m:
+        month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if year < 100:
+            year += 2000
+        remaining = (text[:m.start()] + text[m.end():]).strip()
+        try:
+            return date(year, month, day), remaining
+        except ValueError:
+            pass
+    return None, text
+
+
+def _extract_location(text, config):
+    locations = config.get('locations', []) + ['warehouse']
+    for loc in sorted(locations, key=len, reverse=True):
+        for prep, direction in [('to', 'to'), ('by', 'by'), ('from', 'from')]:
+            pattern = rf'\b{prep}\s+{re.escape(loc)}\b'
+            m = re.search(pattern, text, re.IGNORECASE)
+            if m:
+                remaining = (text[:m.start()] + text[m.end():]).strip()
+                return loc, direction, remaining
+        # "into [the] [loc]"
+        pattern = rf'\binto\s+(?:the\s+)?{re.escape(loc)}\b'
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            remaining = (text[:m.start()] + text[m.end():]).strip()
+            return loc, 'to', remaining
+    return None, None, text
+
+
+def _extract_verb(text, config):
+    for trans_type, verbs in config.get('action_verbs', {}).items():
+        for verb in sorted(verbs, key=len, reverse=True):
+            pattern = rf'\b{re.escape(verb)}\b'
+            m = re.search(pattern, text, re.IGNORECASE)
+            if m:
+                remaining = (text[:m.start()] + text[m.end():]).strip()
+                return trans_type, remaining
+    return None, text
+
+
+def _extract_supplier_info(text, config):
+    all_locs = [l.lower() for l in config.get('locations', [])] + ['warehouse']
+    m = re.search(r'\bfrom\s+(.+?)(?:\s*$)', text, re.IGNORECASE)
+    if m:
+        supplier = m.group(1).strip()
+        if supplier.lower() not in all_locs:
+            remaining = text[:m.start()].strip()
+            return supplier, remaining
+    return None, text
+
+
+def _extract_qty(text, config):
+    remaining = text
+
+    # "half a [container]"
+    hm = re.search(r'\bhalf\s+a\s+', remaining, re.IGNORECASE)
+    if hm:
+        after = remaining[hm.end():]
+        cont, after_cont = _extract_container(after, config)
+        if cont:
+            before = remaining[:hm.start()]
+            remaining = (before + ' ' + after_cont).strip()
+            return 0.5, cont, remaining
+
+    # Math expressions: 2x17, 2x 17, 11*920
+    mm = re.search(r'\b(\d+)\s*[x×*]\s*(\d+)\b', remaining)
+    if mm:
+        qty = int(mm.group(1)) * int(mm.group(2))
+        remaining = (remaining[:mm.start()] + remaining[mm.end():]).strip()
+        cont, remaining = _extract_container(remaining, config)
+        return qty, cont, remaining
+
+    # Plain number
+    nm = re.search(r'\b(\d+)\b', remaining)
+    if nm:
+        qty = int(nm.group(1))
+        remaining = (remaining[:nm.start()] + remaining[nm.end():]).strip()
+        cont, remaining = _extract_container(remaining, config)
+        return qty, cont, remaining
+
+    return None, None, text
+
+
+def _extract_container(text, config):
+    containers = _get_all_containers(config)
+    for cont in sorted(containers, key=len, reverse=True):
+        for variant in _container_variants(cont):
+            # Try anchored first (container right after number)
+            m = re.match(rf'{re.escape(variant)}\b', text.strip(), re.IGNORECASE)
+            if m:
+                remaining = text.strip()[m.end():].strip()
+                return cont, remaining
+            # Then anywhere in text
+            m = re.search(rf'\b{re.escape(variant)}\b', text, re.IGNORECASE)
+            if m:
+                remaining = (text[:m.start()] + text[m.end():]).strip()
+                return cont, remaining
+    return None, text
+
+
+def _get_all_containers(config):
+    containers = set()
+    for convs in config.get('unit_conversions', {}).values():
+        for key in convs:
+            if key != 'base_unit':
+                containers.add(key)
+    return containers
+
+
+def _container_variants(container):
+    words = container.split()
+    last = words[-1]
+    variants = [container]
+    if last.endswith(('x', 's', 'sh', 'ch')):
+        variants.append(' '.join(words[:-1] + [last + 'es']).strip())
+    else:
+        variants.append(' '.join(words[:-1] + [last + 's']).strip())
+    return variants
+
+
+def _convert_container(item, container, qty, config):
+    convs = config.get('unit_conversions', {}).get(item, {})
+    factor = convs.get(container)
+    if factor is not None:
+        return qty * factor
+    return None
+
+
+def _remove_filler(text):
+    for pattern in [r"\bthat's\b", r'\bwhat\b', r'\bthe\b', r'\bof\b',
+                    r'\ba\b', r'\ban\b', r'\bsome\b', r'\bvia\b']:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+# ============================================================
+# Item matching
+# ============================================================
+
+def _match_item(text, config):
+    text_clean = text.strip()
+    if not text_clean:
+        return None, None
+    text_lower = text_clean.lower()
+
+    items = config.get('items', [])
+    aliases = config.get('aliases', {})
+    all_names = {i.lower(): i for i in items}
+    all_aliases = {a.lower(): a for a in aliases}
+
+    # 1. Exact substring match against canonical items (longest first)
+    for item in sorted(items, key=len, reverse=True):
+        if item.lower() in text_lower:
+            return item, item
+
+    # 2. Exact substring match against aliases (longest first)
+    for alias in sorted(aliases, key=len, reverse=True):
+        if alias.lower() in text_lower:
+            return aliases[alias], alias
+
+    # 3. Singular/plural normalization
+    for item in sorted(items, key=len, reverse=True):
+        il = item.lower()
+        tl = text_lower.rstrip('s')
+        if tl == il or tl == il.rstrip('s'):
+            return item, text_clean
+
+    # 4. Abbreviation/prefix match
+    for item in sorted(items, key=len, reverse=True):
+        if item.lower().startswith(text_lower):
+            return item, text_clean
+
+    # 5. Fuzzy match (whole text against items + aliases)
+    all_targets = [i.lower() for i in items] + [a.lower() for a in aliases]
+    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=0.6)
+    if matches:
+        return _resolve_match(matches[0], items, aliases), text_clean
+
+    # 6. Try word spans (longest to shortest)
+    words = text_lower.split()
+    for span_len in range(min(len(words), 4), 0, -1):
+        for start in range(len(words) - span_len + 1):
+            span = ' '.join(words[start:start + span_len])
+
+            # Exact alias
+            if span in all_aliases:
+                return aliases[all_aliases[span]], span
+            # Exact item
+            if span in all_names:
+                return all_names[span], span
+            # Fuzzy
+            matches = get_close_matches(span, all_targets, n=1, cutoff=0.6)
+            if matches:
+                return _resolve_match(matches[0], items, aliases), span
+
+    return None, None
+
+
+def _resolve_match(match_lower, items, aliases):
+    for alias, canonical in aliases.items():
+        if alias.lower() == match_lower:
+            return canonical
+    for item in items:
+        if item.lower() == match_lower:
+            return item
+    return None
+
+
+# ============================================================
+# Line merging
+# ============================================================
+
+def _merge_lines(parsed, config):
+    if not parsed:
+        return []
+
+    merged = []
+    i = 0
+    while i < len(parsed):
+        current = parsed[i]
+
+        # Qty without item + next has item without qty → merge
+        if (current['has_qty'] and not current['has_item']
+                and i + 1 < len(parsed)):
+            nxt = parsed[i + 1]
+            if nxt['has_item'] and not nxt['has_qty']:
+                combined = {**current}
+                combined['item'] = nxt['item']
+                combined['item_raw'] = nxt['item_raw']
+                combined['has_item'] = True
+                combined['raw'] = current['raw'] + '\n' + nxt['raw']
+                # Apply container conversion now that we have both
+                if combined['container'] and combined['item']:
+                    conv = _convert_container(
+                        combined['item'], combined['container'],
+                        combined['qty'], config
+                    )
+                    if conv is not None:
+                        combined['qty'] = conv
+                        combined['container'] = None
+                merged.append(combined)
+                i += 2
+                continue
+
+        # Context-only line (verb/notes but no item/qty) → apply to previous
+        if (not current['has_qty'] and not current['has_item']
+                and (current['trans_type'] or current['notes_extra'])
+                and not current['location']  # not a header with location
+                and merged):
+            prev = merged[-1]
+            if current['trans_type'] and not prev['trans_type']:
+                prev['trans_type'] = current['trans_type']
+            if current['notes_extra']:
+                prev['notes_extra'] = current['notes_extra']
+            i += 1
+            continue
+
+        merged.append(current)
+        i += 1
+
+    return merged
+
+
+# ============================================================
+# Context broadcasting
+# ============================================================
+
+def _broadcast_context(items):
+    if not items:
+        return
+
+    # Forward pass
+    ctx_loc = ctx_dir = ctx_type = ctx_date = None
+    for item in items:
+        if item['location']:
+            ctx_loc, ctx_dir = item['location'], item['direction']
+        if item['trans_type']:
+            ctx_type = item['trans_type']
+        if item['date']:
+            ctx_date = item['date']
+
+        if not item['location'] and ctx_loc:
+            item['location'], item['direction'] = ctx_loc, ctx_dir
+        if not item['trans_type'] and ctx_type:
+            item['trans_type'] = ctx_type
+        if not item['date'] and ctx_date:
+            item['date'] = ctx_date
+
+    # Backward fill: find last-seen values from anywhere
+    last_loc = last_dir = last_type = last_date = None
+    for item in items:
+        if item['location']:
+            last_loc, last_dir = item['location'], item['direction']
+        if item['date']:
+            last_date = item['date']
+        if item['trans_type']:
+            last_type = item['trans_type']
+
+    for item in items:
+        if not item['location'] and last_loc:
+            item['location'], item['direction'] = last_loc, last_dir
+        if not item['date'] and last_date:
+            item['date'] = last_date
+        if not item['trans_type'] and last_type:
+            item['trans_type'] = last_type
+
+
+# ============================================================
+# Result generation
+# ============================================================
+
+_NON_ZERO_SUM = {'eaten', 'starting_point', 'recount', 'supplier_to_warehouse'}
+
+
+def _generate_result(items, config, today):
+    result = ParseResult()
+    transaction_items = []
+
+    for item in items:
+        if item['has_item']:
+            transaction_items.append(item)
+        elif item['has_qty'] and not item['has_item']:
+            result.unparseable.append(item['raw'])
+        elif item['trans_type'] and (item['location'] or item['date']):
+            # Header line — consumed by broadcasting, discard
+            pass
+        else:
+            if _is_note(item):
+                result.notes.append(item['raw'])
+            else:
+                result.unparseable.append(item['raw'])
+
+    _assign_batches(transaction_items)
+
+    for item in transaction_items:
+        rows = _item_to_rows(item, config, today)
+        result.rows.extend(rows)
+
+    return result
+
+
+def _is_note(item):
+    raw = item.get('raw', '')
+    if not raw:
+        return False
+    alpha = len(re.findall(r'[a-zA-Z]', raw))
+    if alpha == 0:
+        return False
+    return alpha / len(raw) > 0.3
+
+
+def _assign_batches(items):
+    if not items:
+        return
+    batch = 1
+    prev_dest = items[0].get('location')
+    prev_date = items[0].get('date')
+    items[0]['batch'] = batch
+
+    for item in items[1:]:
+        dest = item.get('location')
+        dt = item.get('date')
+        if dest is not None and prev_dest is not None and dest != prev_dest:
+            batch += 1
+        elif dt is not None and prev_date is not None and dt != prev_date:
+            batch += 1
+        item['batch'] = batch
+        if dest is not None:
+            prev_dest = dest
+        if dt is not None:
+            prev_date = dt
+
+
+def _item_to_rows(item, config, today):
+    dt = item.get('date') or today
+    inv_type = item.get('item', '???')
+    qty = item['qty'] if item['qty'] is not None else 1
+    trans_type = item.get('trans_type')
+    location = item.get('location')
+    batch = item.get('batch', 1)
+    notes = item.get('notes_extra')
+    default_source = config.get('default_source', 'warehouse')
+
+    row_base = {
+        'date': dt, 'inv_type': inv_type, 'batch': batch, 'notes': notes,
+    }
+
+    # Non-zero-sum → single row
+    if trans_type in _NON_ZERO_SUM:
+        return [{**row_base,
+                 'qty': qty,
+                 'trans_type': trans_type,
+                 'vehicle_sub_unit': location or default_source}]
+
+    # Transfer to a different location → double-entry
+    if location and location != default_source:
+        if not trans_type:
+            trans_type = 'warehouse_to_branch'
+        return [
+            {**row_base, 'qty': -abs(qty), 'trans_type': trans_type,
+             'vehicle_sub_unit': default_source},
+            {**row_base, 'qty': abs(qty), 'trans_type': trans_type,
+             'vehicle_sub_unit': location},
+        ]
+
+    # Receiving at warehouse → single positive row
+    if location and location == default_source:
+        return [{**row_base, 'qty': abs(qty), 'trans_type': trans_type,
+                 'vehicle_sub_unit': default_source}]
+
+    # No location → single row with unknowns
+    return [{**row_base, 'qty': qty, 'trans_type': trans_type,
+             'vehicle_sub_unit': None}]
