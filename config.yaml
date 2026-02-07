@@ -1,0 +1,55 @@
+items:
+  - cherry tomatoes
+  - sweet cherry tomatoes
+  - small potatoes
+  - spaghetti
+  - cucumbers
+  - chicken
+  - carrots
+  - aluminum pans
+  - froot loops
+  - cornflakes
+  - cheerios
+  - cocoa puffs
+  - trix
+
+aliases:
+  small pot: small potatoes
+  cherry tom: cherry tomatoes
+  spaghetti noodles: spaghetti
+  spuds: small potatoes
+
+locations:
+  - L
+  - C
+  - N
+
+default_source: warehouse
+
+transaction_types:
+  - starting_point
+  - recount
+  - warehouse_to_branch
+  - supplier_to_warehouse
+  - eaten
+  - between_branch
+  - between_warehouses
+  - inside_branch
+
+action_verbs:
+  warehouse_to_branch: [passed, gave, sent, delivered]
+  supplier_to_warehouse: [received, got]
+  eaten: [eaten, consumed, used]
+
+unit_conversions:
+  cherry tomatoes:
+    base_unit: count
+    small box: 990
+    box: 1980
+  sweet cherry tomatoes:
+    base_unit: count
+    small box: 990
+    box: 1980
+  small potatoes:
+    base_unit: count
+    box: 920
