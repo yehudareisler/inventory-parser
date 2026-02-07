@@ -94,7 +94,8 @@ def _parse_line(text, config):
         r['trans_type'] = trans_type
 
     # Extract supplier info ("from [name]") if relevant
-    if 'from' in remaining.lower():
+    from_words = config.get('from_words', ['from'])
+    if any(w in remaining.lower() for w in [fw.lower() for fw in from_words]):
         supplier, remaining = _extract_supplier_info(remaining, config)
         if supplier:
             r['notes_extra'] = f'from {supplier}'
@@ -107,7 +108,7 @@ def _parse_line(text, config):
         r['container'] = container
 
     # Clean up remaining text and match item
-    remaining = _remove_filler(remaining)
+    remaining = _remove_filler(remaining, config)
     if remaining.strip():
         item, raw = _match_item(remaining, config)
         if item:
@@ -154,20 +155,34 @@ def _extract_date(text):
 
 
 def _extract_location(text, config):
-    locations = config.get('locations', []) + ['warehouse']
-    for loc in sorted(locations, key=len, reverse=True):
-        for prep, direction in [('to', 'to'), ('by', 'by'), ('from', 'from')]:
-            pattern = rf'\b{prep}\s+{re.escape(loc)}\b'
-            m = re.search(pattern, text, re.IGNORECASE)
-            if m:
-                remaining = (text[:m.start()] + text[m.end():]).strip()
-                return loc, direction, remaining
-        # "into [the] [loc]"
-        pattern = rf'\binto\s+(?:the\s+)?{re.escape(loc)}\b'
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            remaining = (text[:m.start()] + text[m.end():]).strip()
-            return loc, 'to', remaining
+    locations = config.get('locations', [])
+    default_source = config.get('default_source', 'warehouse')
+    all_locs = locations + ([default_source] if default_source not in locations else [])
+
+    # Configurable prepositions: {direction: [words]}
+    prep_config = config.get('prepositions', {
+        'to': ['to', 'into'],
+        'by': ['by'],
+        'from': ['from'],
+    })
+
+    for loc in sorted(all_locs, key=len, reverse=True):
+        for direction, preps in prep_config.items():
+            for prep in sorted(preps, key=len, reverse=True):
+                # For short/non-ASCII prepositions (e.g., Hebrew ל, ב):
+                # require word boundary before prep and separator between prep and loc
+                if len(prep) <= 2 and not prep.isascii():
+                    pattern = rf'(?:^|\s){re.escape(prep)}[\-\s]+{re.escape(loc)}(?=\s|$)'
+                else:
+                    pattern = rf'\b{re.escape(prep)}\s+(?:the\s+)?{re.escape(loc)}\b'
+                m = re.search(pattern, text, re.IGNORECASE)
+                if m:
+                    # Strip any leading whitespace captured by lookaround
+                    start = m.start()
+                    if start < len(text) and text[start].isspace():
+                        start += 1
+                    remaining = (text[:start] + text[m.end():]).strip()
+                    return loc, direction, remaining
     return None, None, text
 
 
@@ -183,13 +198,21 @@ def _extract_verb(text, config):
 
 
 def _extract_supplier_info(text, config):
-    all_locs = [l.lower() for l in config.get('locations', [])] + ['warehouse']
-    m = re.search(r'\bfrom\s+(.+?)(?:\s*$)', text, re.IGNORECASE)
-    if m:
-        supplier = m.group(1).strip()
-        if supplier.lower() not in all_locs:
-            remaining = text[:m.start()].strip()
-            return supplier, remaining
+    all_locs = [l.lower() for l in config.get('locations', [])]
+    default_source = config.get('default_source', 'warehouse')
+    all_locs.append(default_source.lower())
+    from_words = config.get('from_words', ['from'])
+    for word in from_words:
+        if len(word) <= 2 and not word.isascii():
+            pattern = rf'{re.escape(word)}[\-\s]*(.+?)(?:\s*$)'
+        else:
+            pattern = rf'\b{re.escape(word)}\s+(.+?)(?:\s*$)'
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            supplier = m.group(1).strip()
+            if supplier.lower() not in all_locs:
+                remaining = text[:m.start()].strip()
+                return supplier, remaining
     return None, text
 
 
@@ -255,10 +278,12 @@ def _container_variants(container):
     words = container.split()
     last = words[-1]
     variants = [container]
-    if last.endswith(('x', 's', 'sh', 'ch')):
-        variants.append(' '.join(words[:-1] + [last + 'es']).strip())
-    else:
-        variants.append(' '.join(words[:-1] + [last + 's']).strip())
+    # Only apply English pluralization rules to ASCII words
+    if last.isascii():
+        if last.endswith(('x', 's', 'sh', 'ch')):
+            variants.append(' '.join(words[:-1] + [last + 'es']).strip())
+        else:
+            variants.append(' '.join(words[:-1] + [last + 's']).strip())
     return variants
 
 
@@ -270,9 +295,16 @@ def _convert_container(item, container, qty, config):
     return None
 
 
-def _remove_filler(text):
-    for pattern in [r"\bthat's\b", r'\bwhat\b', r'\bthe\b', r'\bof\b',
-                    r'\ba\b', r'\ban\b', r'\bsome\b', r'\bvia\b']:
+_DEFAULT_FILLER = [r"\bthat's\b", r'\bwhat\b', r'\bthe\b', r'\bof\b',
+                    r'\ba\b', r'\ban\b', r'\bsome\b', r'\bvia\b']
+
+
+def _remove_filler(text, config=None):
+    filler = config.get('filler_words', _DEFAULT_FILLER) if config else _DEFAULT_FILLER
+    for pattern in filler:
+        # Plain words get wrapped in \b boundaries; regex patterns used as-is
+        if not pattern.startswith('\\'):
+            pattern = rf'\b{re.escape(pattern)}\b'
         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
     return re.sub(r'\s+', ' ', text).strip()
 
@@ -453,7 +485,7 @@ def _broadcast_context(items):
 # Result generation
 # ============================================================
 
-_NON_ZERO_SUM = {'eaten', 'starting_point', 'recount', 'supplier_to_warehouse'}
+_NON_ZERO_SUM_DEFAULT = {'eaten', 'starting_point', 'recount', 'supplier_to_warehouse'}
 
 
 def _generate_result(items, config, today):
@@ -487,7 +519,7 @@ def _is_note(item):
     raw = item.get('raw', '')
     if not raw:
         return False
-    alpha = len(re.findall(r'[a-zA-Z]', raw))
+    alpha = len(re.findall(r'[a-zA-Z\u0590-\u05FF]', raw))
     if alpha == 0:
         return False
     return alpha / len(raw) > 0.3
@@ -530,7 +562,8 @@ def _item_to_rows(item, config, today):
     }
 
     # Non-zero-sum → single row
-    if trans_type in _NON_ZERO_SUM:
+    non_zero_sum = set(config.get('non_zero_sum_types', _NON_ZERO_SUM_DEFAULT))
+    if trans_type in non_zero_sum:
         return [{**row_base,
                  'qty': qty,
                  'trans_type': trans_type,
@@ -539,7 +572,7 @@ def _item_to_rows(item, config, today):
     # Transfer to a different location → double-entry
     if location and location != default_source:
         if not trans_type:
-            trans_type = 'warehouse_to_branch'
+            trans_type = config.get('default_transfer_type', 'warehouse_to_branch')
         return [
             {**row_base, 'qty': -abs(qty), 'trans_type': trans_type,
              'vehicle_sub_unit': default_source},
