@@ -343,11 +343,12 @@ class TestReviewRowOps:
 
         Stage 1: Parse → 1 row
         Stage 2: User types "+" → new empty row appended
-        Stage 3: User types "c" → confirms
+        Stage 3: User types "c" → incomplete row warning
+        Stage 4: User types "y" → confirms anyway
         Verify: 2 rows, second is empty template
         """
         result = parse("eaten by L\n4 cucumbers", config, today=TODAY)
-        monkeypatch.setattr('builtins.input', make_input(["+", "c"]))
+        monkeypatch.setattr('builtins.input', make_input(["+", "c", "y"]))
         outcome = review_loop(result, "...", config)
         assert len(outcome['rows']) == 2
         assert outcome['rows'][1]['inv_type'] == '???'

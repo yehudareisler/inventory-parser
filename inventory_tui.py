@@ -190,25 +190,38 @@ FIELD_CODES = {
     'i': 'inv_type',
     'q': 'qty',
     't': 'trans_type',
-    'v': 'vehicle_sub_unit',
+    'l': 'vehicle_sub_unit',
     'n': 'notes',
     'b': 'batch',
 }
 
 CLOSED_SET_FIELDS = {'inv_type', 'trans_type', 'vehicle_sub_unit'}
 
+# User-facing display names for internal field names
+FIELD_DISPLAY_NAMES = {
+    'inv_type': 'ITEM',
+    'trans_type': 'TRANS TYPE',
+    'vehicle_sub_unit': 'LOCATION',
+    'qty': 'QTY',
+    'date': 'DATE',
+    'notes': 'NOTES',
+    'batch': 'BATCH',
+}
+
 
 def edit_closed_set(field, options):
     """Show lettered options, return selected value."""
-    print(f"\n{field.upper()}:")
+    display_name = FIELD_DISPLAY_NAMES.get(field, field.upper())
+    print(f"\n{display_name}:")
     for i, opt in enumerate(options):
         letter = ascii_lowercase[i] if i < 26 else str(i)
         print(f"  [{letter}] {opt}")
     print()
 
     while True:
-        choice = input("> ").strip().lower()
+        choice = input("Enter letter (or Enter to cancel)> ").strip().lower()
         if not choice:
+            print("  Edit cancelled.")
             return None  # cancel
 
         # Try letter
@@ -226,10 +239,12 @@ def edit_closed_set(field, options):
 
 def edit_open_field(field, current_value):
     """Prompt for direct input. Returns new value or None to cancel."""
+    display_name = FIELD_DISPLAY_NAMES.get(field, field.upper())
     current_display = current_value if current_value is not None else ''
-    print(f"\n{field.upper()} (current: {current_display})")
+    print(f"\n{display_name} (current: {current_display}, Enter to cancel)")
     raw = input("> ").strip()
     if not raw:
+        print("  Edit cancelled.")
         return None  # cancel
 
     if field == 'qty':
@@ -334,6 +349,9 @@ def check_alias_opportunity(rows, original_tokens, config):
         canonical = rows[idx].get('inv_type', '')
         if not original or not canonical:
             continue
+        # Don't offer to save placeholder values as aliases
+        if original == '???' or canonical == '???':
+            continue
 
         orig_lower = original.lower()
         canon_lower = canonical.lower()
@@ -365,6 +383,46 @@ def prompt_save_aliases(prompts, config):
 
 
 # ============================================================
+# Help text
+# ============================================================
+
+HELP_TEXT = """\
+Commands:
+  c             Confirm and save all rows
+  q             Quit (discard this parse)
+  r             Edit raw text and re-parse
+  <row><field>  Edit a field (e.g., 1i = edit item on row 1)
+  x<row>        Delete a row (e.g., x1)
+  +             Add a new empty row
+  ?             Show this help
+
+Field codes:
+  d = date    i = item    q = qty      t = type
+  l = location   n = notes   b = batch
+
+Examples:
+  1t   Edit transaction type on row 1
+  2q   Edit quantity on row 2
+  x3   Delete row 3
+"""
+
+HELP_TEXT_NOTES = """\
+Commands:
+  n   Save as note (keep the text for reference)
+  e   Edit the raw text and re-parse
+  s   Skip (discard this input)
+  ?   Show this help
+"""
+
+HELP_TEXT_UNPARSEABLE = """\
+Commands:
+  e   Edit the raw text and re-parse
+  s   Skip (discard this input)
+  ?   Show this help
+"""
+
+
+# ============================================================
 # Review loop
 # ============================================================
 
@@ -383,8 +441,11 @@ def review_loop(result, raw_text, config):
 
         if not rows and not notes and unparseable:
             # Only unparseable content
-            print("\n[e]dit and retry / [s]kip")
+            print("\n[e]dit and retry / [s]kip  (? for help)")
             cmd = input("> ").strip().lower()
+            if cmd == '?' or cmd == 'h':
+                print(HELP_TEXT_UNPARSEABLE)
+                continue
             if cmd == 's':
                 return None
             if cmd == 'e':
@@ -395,8 +456,11 @@ def review_loop(result, raw_text, config):
         if not rows and notes and not unparseable:
             # Only notes
             print("\nNo transactions found.")
-            print("Save as [n]ote / [e]dit and retry / [s]kip")
+            print("Save as [n]ote / [e]dit and retry / [s]kip  (? for help)")
             cmd = input("> ").strip().lower()
+            if cmd == '?' or cmd == 'h':
+                print(HELP_TEXT_NOTES)
+                continue
             if cmd == 'n':
                 return {'rows': [], 'notes': notes}
             if cmd == 's':
@@ -407,10 +471,24 @@ def review_loop(result, raw_text, config):
             continue
 
         # Normal review
-        print("\n[c]onfirm / [e]dit / [r]etry / [q]uit")
+        print("\n[c]onfirm / edit (e.g. 1i) / [r]etry / [q]uit  (? for help)")
         cmd = input("> ").strip().lower()
 
+        if cmd == '?' or cmd == 'h':
+            print(HELP_TEXT)
+            continue
+
         if cmd == 'c':
+            # Warn about incomplete rows
+            incomplete = [i + 1 for i, r in enumerate(rows)
+                          if r.get('inv_type') == '???' or r.get('trans_type') is None
+                          or r.get('vehicle_sub_unit') is None]
+            if incomplete:
+                row_list = ', '.join(str(n) for n in incomplete)
+                resp = input(f"  Warning: Row(s) {row_list} have incomplete fields (???). Confirm anyway? [y/n] ").strip().lower()
+                if resp != 'y':
+                    continue
+
             if original_tokens:
                 prompts = check_alias_opportunity(rows, original_tokens, config)
                 if prompts:
@@ -440,7 +518,7 @@ def review_loop(result, raw_text, config):
             continue
 
         # Edit field: <row><field_code>
-        m = re.match(r'^(\d+)([diqtvnb])$', cmd)
+        m = re.match(r'^(\d+)([diqtlnb])$', cmd)
         if m:
             row_num = int(m.group(1)) - 1
             field_code = m.group(2)
@@ -474,10 +552,11 @@ def review_loop(result, raw_text, config):
                 if field == 'inv_type' and old_item_token and old_item_token != new_value:
                     original_tokens[row_num] = old_item_token
 
-                print(f"  Row {row_num + 1} {field} \u2192 {new_value}")
+                display_name = FIELD_DISPLAY_NAMES.get(field, field)
+                print(f"  Row {row_num + 1} {display_name.lower()} \u2192 {new_value}")
             continue
 
-        print("  Unknown command. Use [c]onfirm / [e]dit (<row><field>) / [r]etry / [q]uit / x<row> / +")
+        print("  Unknown command. Type ? for help, or try e.g. 1i to edit item on row 1.")
 
     return None
 
