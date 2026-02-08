@@ -1,15 +1,19 @@
 """
 Tests for the inventory message parser — Hebrew language.
 
-These tests mirror the English test_parser.py structure, using Hebrew
-item names, verbs, locations, and container names from config_he.yaml.
+Full Hebrew test suite: parser tests + TUI tests with Hebrew commands,
+field codes, and UI strings from config_he.yaml.
 """
 
 import pytest
 from datetime import date
 
 from inventory_parser import parse
-from inventory_tui import review_loop
+from inventory_tui import (
+    review_loop, display_result, eval_qty, parse_date,
+    find_partner, update_partner, check_alias_opportunity,
+    UIStrings,
+)
 
 
 # ============================================================
@@ -17,6 +21,73 @@ from inventory_tui import review_loop
 # ============================================================
 
 TODAY = date(2025, 3, 19)
+
+# Hebrew UI config — must match config_he.yaml ui section
+_HE_UI = {
+    'commands': {
+        'confirm': 'א',
+        'quit': 'ב',
+        'retry': 'ע',
+        'edit': 'ע',
+        'save_note': 'ש',
+        'skip': 'ד',
+        'delete_prefix': 'ח',
+        'add_row': '+',
+        'help': '?',
+        'yes': 'כ',
+        'no': 'ל',
+    },
+    'field_codes': {
+        'ת': 'date',
+        'פ': 'inv_type',
+        'כ': 'qty',
+        'ס': 'trans_type',
+        'מ': 'vehicle_sub_unit',
+        'ה': 'notes',
+        'ק': 'batch',
+    },
+    'field_display_names': {
+        'date': 'תאריך',
+        'inv_type': 'פריט',
+        'qty': 'כמות',
+        'trans_type': 'סוג',
+        'vehicle_sub_unit': 'מיקום',
+        'notes': 'הערות',
+        'batch': 'קבוצה',
+    },
+    'table_headers': ['#', 'תאריך', 'פריט', 'כמות', 'סוג', 'מיקום', 'קבוצה', 'הערות'],
+    'option_letters': 'אבגדהוזחטיכלמנסעפצקרשת',
+    'strings': {
+        'note_prefix': 'הערה',
+        'unparseable_prefix': 'לא ניתן לפרש',
+        'review_prompt': '\n[א]ישור / עריכה (לדוגמה 1פ) / [ע]ריכה מחדש / [ב]יטול  (? לעזרה)',
+        'notes_only_prompt': '[ש]מור כהערה / [ע]ריכה מחדש / [ד]ילוג  (? לעזרה)',
+        'unparseable_prompt': '\n[ע]ריכה מחדש / [ד]ילוג  (? לעזרה)',
+        'no_transactions': '\nלא נמצאו עסקאות.',
+        'confirm_incomplete_warning': '  אזהרה: שורה/ות {row_list} עם שדות חסרים (???). לאשר בכל זאת? [{yes}/{no}] ',
+        'enter_letter_prompt': 'הקש אות (או Enter לביטול)> ',
+        'edit_cancelled': '  העריכה בוטלה.',
+        'row_deleted': '  שורה {num} נמחקה.',
+        'invalid_row': '  מספר שורה לא חוקי.',
+        'row_updated': '  שורה {num} {field} \u2192 {value}',
+        'unknown_command': '  פקודה לא מוכרת. הקש ? לעזרה, או נסה לדוגמה 1פ לעריכת פריט בשורה 1.',
+        'original_text_label': '\nטקסט מקורי:\n{text}\n',
+        'enter_corrected_text': 'הקלד טקסט מתוקן (שורה ריקה לסיום):',
+        'save_alias_prompt': 'לשמור "{original}" \u2192 "{canonical}" כקיצור? [{yes}/{no}] ',
+        'help_commands_header': 'פקודות:',
+        'help_field_codes_header': 'קודי שדות:',
+        'help_examples_header': 'דוגמאות:',
+        'help_confirm_desc': 'אישור ושמירת כל השורות',
+        'help_quit_desc': 'ביטול (מחיקת הניתוח)',
+        'help_retry_desc': 'עריכת טקסט מקורי וניתוח מחדש',
+        'help_edit_desc': 'עריכת שדה (לדוגמה {example})',
+        'help_delete_desc': 'מחיקת שורה (לדוגמה {example})',
+        'help_add_desc': 'הוספת שורה חדשה',
+        'help_help_desc': 'הצגת עזרה זו',
+        'help_save_note_desc': 'שמירה כהערה (לשמירת הטקסט)',
+        'help_skip_desc': 'דילוג (מחיקת קלט זה)',
+    },
+}
 
 
 @pytest.fixture
@@ -33,6 +104,8 @@ def config():
             'שרי': 'עגבניות שרי',
             'נודלס ספגטי': 'ספגטי',
             'תפודים': 'תפוחי אדמה קטנים',
+            'תפוא': 'תפוחי אדמה קטנים',
+            'תפוח אדמה': 'תפוחי אדמה קטנים',
         },
         'locations': ['ל', 'כ', 'נ'],
         'default_source': 'מחסן',
@@ -59,6 +132,7 @@ def config():
         'filler_words': [],
         'non_zero_sum_types': ['נאכל', 'נקודת_התחלה', 'ספירה_חוזרת', 'ספק_למחסן'],
         'default_transfer_type': 'מחסן_לסניף',
+        'ui': _HE_UI,
     }
 
 
@@ -66,6 +140,8 @@ def make_input(responses):
     """Create a mock input() that returns responses in sequence."""
     it = iter(responses)
     def mock_input(prompt=''):
+        if prompt:
+            print(prompt, end='')
         try:
             return next(it)
         except StopIteration:
@@ -78,13 +154,7 @@ def make_input(responses):
 # ============================================================
 
 def test_simple_consumption(config):
-    """
-    נאכל ב-ל 15.3.25
-    2 קופסה קטנה עגבניות שרי
-    4 מלפפונים
-
-    Exercises: Hebrew verb, location, date, container conversion, non-zero-sum.
-    """
+    """Hebrew verb + location + date + container conversion + non-zero-sum."""
     result = parse(
         "נאכל ב-ל 15.3.25\n"
         "2 קופסה קטנה עגבניות שרי\n"
@@ -99,7 +169,7 @@ def test_simple_consumption(config):
 
     assert result.rows[0]['date'] == date(2025, 3, 15)
     assert result.rows[0]['inv_type'] == 'עגבניות שרי'
-    assert result.rows[0]['qty'] == 1980  # 2 קופסה קטנה × 990
+    assert result.rows[0]['qty'] == 1980  # 2 × 990
     assert result.rows[0]['trans_type'] == 'נאכל'
     assert result.rows[0]['vehicle_sub_unit'] == 'ל'
     assert result.rows[0]['batch'] == 1
@@ -111,11 +181,7 @@ def test_simple_consumption(config):
 
 
 def test_transfer_with_math(config):
-    """
-    העבירו 2x17 נודלס ספגטי ל-ל
-
-    Exercises: Hebrew verb, math expression, alias, double-entry.
-    """
+    """Hebrew verb + math expression + alias + double-entry."""
     result = parse(
         "העבירו 2x17 נודלס ספגטי ל-ל",
         config,
@@ -137,12 +203,7 @@ def test_transfer_with_math(config):
 
 
 def test_multiple_destinations(config):
-    """
-    8 קופסה תפו"א קטנים ל-כ
-    7 קופסה תפוחי אדמה קטנים ל-ל
-
-    Exercises: Hebrew alias, different destinations, container conversion, batches.
-    """
+    """Hebrew alias + different destinations + container conversion + batches."""
     result = parse(
         '8 קופסה תפו"א קטנים ל-כ\n'
         '7 קופסה תפוחי אדמה קטנים ל-ל',
@@ -152,18 +213,15 @@ def test_multiple_destinations(config):
 
     assert len(result.rows) == 4
 
-    # Batch 1: 8 קופסה to כ → 8 × 920 = 7360
     assert result.rows[0]['inv_type'] == 'תפוחי אדמה קטנים'
     assert result.rows[0]['qty'] == -7360
     assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
     assert result.rows[0]['batch'] == 1
 
-    assert result.rows[1]['inv_type'] == 'תפוחי אדמה קטנים'
     assert result.rows[1]['qty'] == 7360
     assert result.rows[1]['vehicle_sub_unit'] == 'כ'
     assert result.rows[1]['batch'] == 1
 
-    # Batch 2: 7 קופסה to ל → 7 × 920 = 6440
     assert result.rows[2]['qty'] == -6440
     assert result.rows[2]['vehicle_sub_unit'] == 'מחסן'
     assert result.rows[2]['batch'] == 2
@@ -174,22 +232,14 @@ def test_multiple_destinations(config):
 
 
 def test_unparseable_numbers(config):
-    """
-    4 82 95 3 1
-
-    Numbers without item names → unparseable.
-    """
+    """Numbers without item names → unparseable."""
     result = parse("4 82 95 3 1", config, today=TODAY)
     assert len(result.rows) == 0
     assert len(result.unparseable) > 0
 
 
 def test_communication_note(config):
-    """
-    רימון ל-נ דרך נאור בטלפון
-
-    No quantity, no known item → classified as note.
-    """
+    """No quantity, no known item → classified as note."""
     result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
     assert len(result.rows) == 0
     assert len(result.notes) == 1
@@ -197,14 +247,7 @@ def test_communication_note(config):
 
 
 def test_destination_changes_mid_list(config):
-    """
-    3 מלפפונים ל-ל
-    2 ספגטי
-    5 עגבניות שרי ל-כ
-    1 תפוחי אדמה קטנים
-
-    Exercises: forward broadcasting, batch change on destination change.
-    """
+    """Forward broadcasting, batch change on destination change."""
     result = parse(
         "3 מלפפונים ל-ל\n"
         "2 ספגטי\n"
@@ -214,9 +257,8 @@ def test_destination_changes_mid_list(config):
         today=TODAY,
     )
 
-    assert len(result.rows) == 8  # 4 items × 2 rows each (double-entry)
+    assert len(result.rows) == 8
 
-    # Batch 1: to ל
     assert result.rows[0]['inv_type'] == 'מלפפונים'
     assert result.rows[0]['qty'] == -3
     assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
@@ -224,31 +266,21 @@ def test_destination_changes_mid_list(config):
     assert result.rows[1]['vehicle_sub_unit'] == 'ל'
     assert result.rows[1]['batch'] == 1
 
-    # ספגטי inherits destination ל
     assert result.rows[2]['inv_type'] == 'ספגטי'
     assert result.rows[3]['vehicle_sub_unit'] == 'ל'
     assert result.rows[3]['batch'] == 1
 
-    # Batch 2: to כ
     assert result.rows[4]['inv_type'] == 'עגבניות שרי'
     assert result.rows[5]['vehicle_sub_unit'] == 'כ'
     assert result.rows[5]['batch'] == 2
 
-    # תפוחי אדמה inherits destination כ
     assert result.rows[6]['inv_type'] == 'תפוחי אדמה קטנים'
     assert result.rows[7]['vehicle_sub_unit'] == 'כ'
     assert result.rows[7]['batch'] == 2
 
 
 def test_no_context_list(config):
-    """
-    4 פרוט לופס
-    189 קורנפלקס
-    3 קקאו פאפס
-    1 טריקס
-
-    No header — no date, no destination, no action verb.
-    """
+    """No header — no date, no destination, no action verb."""
     result = parse(
         "4 פרוט לופס\n"
         "189 קורנפלקס\n"
@@ -259,7 +291,6 @@ def test_no_context_list(config):
     )
 
     assert len(result.rows) == 4
-
     expected = [
         ('פרוט לופס', 4),
         ('קורנפלקס', 189),
@@ -276,17 +307,7 @@ def test_no_context_list(config):
 
 
 def test_multi_date_consumption(config):
-    """
-    נאכל ב-ל 15.3.25
-    2 קופסה קטנה עגבניות שרי
-    4 מלפפונים
-
-    נאכלו ב-ל 16.3.25
-    1980 עגבניות שרי
-    4 מלפפונים
-
-    Same location, different dates → separate batches.
-    """
+    """Same location, different dates → separate batches."""
     result = parse(
         "נאכל ב-ל 15.3.25\n"
         "2 קופסה קטנה עגבניות שרי\n"
@@ -301,7 +322,6 @@ def test_multi_date_consumption(config):
 
     assert len(result.rows) == 4
 
-    # Batch 1: 15.3.25
     assert result.rows[0]['date'] == date(2025, 3, 15)
     assert result.rows[0]['inv_type'] == 'עגבניות שרי'
     assert result.rows[0]['qty'] == 1980
@@ -312,7 +332,6 @@ def test_multi_date_consumption(config):
     assert result.rows[1]['qty'] == 4
     assert result.rows[1]['batch'] == 1
 
-    # Batch 2: 16.3.25
     assert result.rows[2]['date'] == date(2025, 3, 16)
     assert result.rows[2]['inv_type'] == 'עגבניות שרי'
     assert result.rows[2]['qty'] == 1980
@@ -323,73 +342,432 @@ def test_multi_date_consumption(config):
     assert result.rows[3]['batch'] == 2
 
 
+def test_no_separator_location(config):
+    """לל (no separator between prep and location) should parse."""
+    result = parse("3 מלפפונים לל", config, today=TODAY)
+    assert len(result.rows) == 2
+    assert result.rows[1]['vehicle_sub_unit'] == 'ל'
+    assert result.rows[1]['qty'] == 3
+
+
 # ============================================================
-# TUI tests (Hebrew)
+# Double-entry partner detection (Hebrew items)
 # ============================================================
 
-def test_tui_confirm_hebrew(config, monkeypatch):
-    """Parse Hebrew consumption → confirm → returns correct rows."""
-    result = parse("נאכל ב-ל 15.3.25\n4 מלפפונים", config, today=TODAY)
-    monkeypatch.setattr('builtins.input', make_input(["c"]))
-    outcome = review_loop(result, "נאכל ב-ל 15.3.25\n4 מלפפונים", config)
+class TestFindPartnerHe:
+    def test_finds_partner(self):
+        rows = [
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': -34},
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': 34},
+        ]
+        assert find_partner(rows, 0) == 1
+        assert find_partner(rows, 1) == 0
 
-    assert outcome is not None
-    assert len(outcome['rows']) == 1
-    assert outcome['rows'][0]['inv_type'] == 'מלפפונים'
-    assert outcome['rows'][0]['qty'] == 4
-    assert outcome['rows'][0]['trans_type'] == 'נאכל'
-    assert outcome['rows'][0]['vehicle_sub_unit'] == 'ל'
+    def test_no_partner_different_batch(self):
+        rows = [
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': -34},
+            {'batch': 2, 'inv_type': 'ספגטי', 'qty': 34},
+        ]
+        assert find_partner(rows, 0) is None
 
-
-def test_tui_edit_type_hebrew(config, monkeypatch):
-    """Edit trans_type on a Hebrew row via picker.
-
-    transaction_types: [a]נקודת_התחלה [b]ספירה_חוזרת [c]מחסן_לסניף
-      [d]ספק_למחסן [e]נאכל ...
-    """
-    result = parse("4 מלפפונים ל-ל", config, today=TODAY)
-    # 1t → edit trans_type, e → select נאכל (5th option), c → confirm
-    monkeypatch.setattr('builtins.input', make_input(["1t", "e", "c"]))
-    outcome = review_loop(result, "4 מלפפונים ל-ל", config)
-
-    assert outcome['rows'][0]['trans_type'] == 'נאכל'
-    assert outcome['rows'][1]['trans_type'] == 'נאכל'  # partner auto-updated
+    def test_no_partner_single_row(self):
+        rows = [{'batch': 1, 'inv_type': 'מלפפונים', 'qty': 4}]
+        assert find_partner(rows, 0) is None
 
 
-def test_tui_edit_qty_hebrew(config, monkeypatch):
-    """Edit qty using math expression on a Hebrew row."""
-    result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
-    monkeypatch.setattr('builtins.input', make_input(["1q", "2x17", "c"]))
-    outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
-    assert outcome['rows'][0]['qty'] == 34
+class TestUpdatePartnerHe:
+    def test_item_update_syncs(self):
+        rows = [
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': -34},
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': 34},
+        ]
+        update_partner(rows, 0, 'inv_type', 'עגבניות שרי')
+        assert rows[1]['inv_type'] == 'עגבניות שרי'
+
+    def test_qty_update_negates(self):
+        rows = [
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': -34},
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': 34},
+        ]
+        update_partner(rows, 0, 'qty', -50)
+        assert rows[1]['qty'] == 50
+
+    def test_location_not_synced(self):
+        rows = [
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': -34, 'vehicle_sub_unit': 'מחסן'},
+            {'batch': 1, 'inv_type': 'ספגטי', 'qty': 34, 'vehicle_sub_unit': 'ל'},
+        ]
+        update_partner(rows, 0, 'vehicle_sub_unit', 'כ')
+        assert rows[1]['vehicle_sub_unit'] == 'ל'  # unchanged
 
 
-def test_tui_retry_hebrew(config, monkeypatch):
-    """Retry with different Hebrew text."""
-    result = parse("4 82 95 3 1", config, today=TODAY)
-    assert len(result.rows) == 0
+# ============================================================
+# Display tests (Hebrew UI)
+# ============================================================
 
-    monkeypatch.setattr('builtins.input', make_input([
-        "e",                       # edit
-        "4 מלפפונים ל-ל",           # corrected text
-        "",                        # end of input
-        "c",                       # confirm
-    ]))
-    outcome = review_loop(result, "4 82 95 3 1", config)
+class TestDisplayHe:
+    def test_shows_hebrew_headers(self, config, capsys):
+        result = parse("העבירו 2x17 נודלס ספגטי ל-ל", config, today=TODAY)
+        ui = UIStrings(config)
+        display_result(result.rows, ui=ui)
+        output = capsys.readouterr().out
+        assert 'פריט' in output
+        assert 'כמות' in output
+        assert 'מיקום' in output
+        assert 'סוג' in output
 
-    assert outcome is not None
-    assert len(outcome['rows']) == 2
-    assert outcome['rows'][1]['inv_type'] == 'מלפפונים'
-    assert outcome['rows'][1]['vehicle_sub_unit'] == 'ל'
+    def test_shows_hebrew_notes(self, config, capsys):
+        ui = UIStrings(config)
+        display_result([], notes=["רימון ל-נ דרך נאור בטלפון"], ui=ui)
+        output = capsys.readouterr().out
+        assert 'הערה' in output
+        assert 'רימון' in output
+
+    def test_shows_hebrew_unparseable(self, config, capsys):
+        ui = UIStrings(config)
+        display_result([], unparseable=["4 82 95 3 1"], ui=ui)
+        output = capsys.readouterr().out
+        assert 'לא ניתן לפרש' in output
+        assert '4 82 95 3 1' in output
+
+    def test_warning_flag_on_missing_fields(self, config, capsys):
+        ui = UIStrings(config)
+        rows = [{
+            'date': TODAY, 'inv_type': 'מלפפונים', 'qty': 4,
+            'trans_type': None, 'vehicle_sub_unit': None,
+            'batch': 1, 'notes': None,
+        }]
+        display_result(rows, ui=ui)
+        output = capsys.readouterr().out
+        assert '\u26a0' in output
+        assert '???' in output
 
 
-def test_tui_note_hebrew(config, monkeypatch):
-    """Hebrew note-only input → save as note."""
-    result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
-    assert len(result.notes) >= 1
-    monkeypatch.setattr('builtins.input', make_input(["n"]))
-    outcome = review_loop(result, "רימון ל-נ דרך נאור בטלפון", config)
+# ============================================================
+# Review loop: confirm and quit (Hebrew commands)
+# ============================================================
 
-    assert outcome is not None
-    assert len(outcome['notes']) >= 1
-    assert 'רימון' in outcome['notes'][0]
+class TestReviewConfirmQuitHe:
+    def test_confirm_returns_rows(self, config, monkeypatch):
+        """א confirms and returns parsed rows."""
+        result = parse("נאכל ב-ל 15.3.25\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["א"]))
+        outcome = review_loop(result, "נאכל ב-ל 15.3.25\n4 מלפפונים", config)
+
+        assert outcome is not None
+        assert len(outcome['rows']) == 1
+        assert outcome['rows'][0]['inv_type'] == 'מלפפונים'
+        assert outcome['rows'][0]['qty'] == 4
+        assert outcome['rows'][0]['trans_type'] == 'נאכל'
+        assert outcome['rows'][0]['vehicle_sub_unit'] == 'ל'
+
+    def test_quit_returns_none(self, config, monkeypatch):
+        """ב quits and returns None."""
+        result = parse("4 מלפפונים ל-ל", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["ב"]))
+        outcome = review_loop(result, "4 מלפפונים ל-ל", config)
+        assert outcome is None
+
+    def test_confirm_preserves_notes(self, config, monkeypatch):
+        """א with transactions + note → both preserved."""
+        text = "4 מלפפונים ל-ל\nרימון ל-נ דרך נאור בטלפון"
+        result = parse(text, config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["א"]))
+        outcome = review_loop(result, text, config)
+
+        assert len(outcome['rows']) == 2  # double-entry
+        assert len(outcome['notes']) >= 1
+
+
+# ============================================================
+# Review loop: field editing (Hebrew field codes)
+# ============================================================
+
+class TestReviewEditingHe:
+    def test_edit_trans_type(self, config, monkeypatch):
+        """1ס → trans_type picker, ה → select נאכל (5th), א → confirm.
+
+        transaction_types: [א]נקודת_התחלה [ב]ספירה_חוזרת [ג]מחסן_לסניף
+          [ד]ספק_למחסן [ה]נאכל ...
+        """
+        result = parse("4 מלפפונים ל-ל", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["1ס", "ה", "א"]))
+        outcome = review_loop(result, "4 מלפפונים ל-ל", config)
+
+        assert outcome['rows'][0]['trans_type'] == 'נאכל'
+        assert outcome['rows'][1]['trans_type'] == 'נאכל'
+
+    def test_edit_qty_with_math(self, config, monkeypatch):
+        """1כ → qty prompt, 2x17 → qty becomes 34, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["1כ", "2x17", "א"]))
+        outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
+        assert outcome['rows'][0]['qty'] == 34
+
+    def test_edit_date(self, config, monkeypatch):
+        """1ת → date prompt, 25.12.25 → date set, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["1ת", "25.12.25", "א"]))
+        outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
+        assert outcome['rows'][0]['date'] == date(2025, 12, 25)
+
+    def test_edit_item_updates_partner(self, config, monkeypatch):
+        """1פ → item picker, א → select עגבניות שרי (1st), א → confirm.
+
+        items: [א]עגבניות שרי [ב]עגבניות שרי מתוקות [ג]תפוחי אדמה קטנים
+          [ד]ספגטי [ה]מלפפונים ...
+        """
+        result = parse("העבירו 4 ספגטי ל-ל", config, today=TODAY)
+        assert len(result.rows) == 2
+        monkeypatch.setattr('builtins.input', make_input(["1פ", "א", "א"]))
+        outcome = review_loop(result, "העבירו 4 ספגטי ל-ל", config)
+
+        assert outcome['rows'][0]['inv_type'] == 'עגבניות שרי'
+        assert outcome['rows'][1]['inv_type'] == 'עגבניות שרי'
+
+    def test_edit_notes(self, config, monkeypatch):
+        """1ה → notes prompt, free text, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["1ה", "משלוח מיוחד", "א"]))
+        outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
+        assert outcome['rows'][0]['notes'] == 'משלוח מיוחד'
+
+    def test_edit_batch(self, config, monkeypatch):
+        """1ק → batch prompt, number, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["1ק", "5", "א"]))
+        outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
+        assert outcome['rows'][0]['batch'] == 5
+
+
+# ============================================================
+# Review loop: row operations (Hebrew commands)
+# ============================================================
+
+class TestReviewRowOpsHe:
+    def test_delete_row(self, config, monkeypatch):
+        """ח1 → delete row 1, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים\n2 ספגטי", config, today=TODAY)
+        assert len(result.rows) == 2
+        monkeypatch.setattr('builtins.input', make_input(["ח1", "א"]))
+        outcome = review_loop(result, "...", config)
+
+        assert len(outcome['rows']) == 1
+        assert outcome['rows'][0]['inv_type'] == 'ספגטי'
+
+    def test_add_row(self, config, monkeypatch):
+        """+ → add row, א → incomplete warning, כ → confirm anyway."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["+", "א", "כ"]))
+        outcome = review_loop(result, "...", config)
+        assert len(outcome['rows']) == 2
+        assert outcome['rows'][1]['inv_type'] == '???'
+
+
+# ============================================================
+# Review loop: edit and retry (Hebrew commands)
+# ============================================================
+
+class TestEditRetryHe:
+    def test_retry_from_unparseable(self, config, monkeypatch):
+        """ע → edit mode, corrected text, א → confirm."""
+        result = parse("4 82 95 3 1", config, today=TODAY)
+        assert len(result.rows) == 0
+        assert len(result.unparseable) > 0
+
+        monkeypatch.setattr('builtins.input', make_input([
+            "ע",                       # edit (unparseable context)
+            "4 מלפפונים ל-ל",           # corrected text
+            "",                        # end of input
+            "א",                       # confirm
+        ]))
+        outcome = review_loop(result, "4 82 95 3 1", config)
+
+        assert outcome is not None
+        assert len(outcome['rows']) == 2
+        assert outcome['rows'][1]['inv_type'] == 'מלפפונים'
+        assert outcome['rows'][1]['vehicle_sub_unit'] == 'ל'
+
+    def test_skip_unparseable(self, config, monkeypatch):
+        """ד → skip."""
+        result = parse("4 82 95 3 1", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["ד"]))
+        outcome = review_loop(result, "4 82 95 3 1", config)
+        assert outcome is None
+
+    def test_retry_from_normal_review(self, config, monkeypatch):
+        """ע → retry in normal review, new text, א → confirm."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input([
+            "ע",                            # retry
+            "העבירו 2x17 ספגטי ל-ל",         # new text
+            "",                             # end of input
+            "א",                            # confirm
+        ]))
+        outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
+
+        assert len(outcome['rows']) == 2
+        assert outcome['rows'][0]['inv_type'] == 'ספגטי'
+        assert outcome['rows'][0]['qty'] == -34
+
+
+# ============================================================
+# Review loop: note handling (Hebrew commands)
+# ============================================================
+
+class TestNoteHandlingHe:
+    def test_note_save(self, config, monkeypatch):
+        """ש → save as note."""
+        result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
+        assert len(result.notes) >= 1
+        monkeypatch.setattr('builtins.input', make_input(["ש"]))
+        outcome = review_loop(result, "רימון ל-נ דרך נאור בטלפון", config)
+
+        assert outcome is not None
+        assert len(outcome['notes']) >= 1
+        assert 'רימון' in outcome['notes'][0]
+
+    def test_note_skip(self, config, monkeypatch):
+        """ד → skip note."""
+        result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["ד"]))
+        outcome = review_loop(result, "רימון ל-נ דרך נאור בטלפון", config)
+        assert outcome is None
+
+    def test_note_retry(self, config, monkeypatch):
+        """ע → edit from note context, corrected text, א → confirm."""
+        result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
+        assert len(result.notes) >= 1
+        monkeypatch.setattr('builtins.input', make_input([
+            "ע",                    # edit
+            "4 מלפפונים ל-ל",        # corrected text
+            "",                     # end of input
+            "א",                    # confirm
+        ]))
+        outcome = review_loop(result, "רימון ל-נ דרך נאור בטלפון", config)
+
+        assert outcome is not None
+        assert len(outcome['rows']) == 2
+        assert outcome['rows'][1]['inv_type'] == 'מלפפונים'
+
+
+# ============================================================
+# Alias learning (Hebrew items)
+# ============================================================
+
+class TestAliasLearningHe:
+    def test_detects_alias_opportunity(self, config):
+        """Unknown token edited to canonical → alias opportunity."""
+        rows = [{'inv_type': 'תפוחי אדמה קטנים', 'qty': 4}]
+        original_tokens = {0: 'תפודי'}
+        prompts = check_alias_opportunity(rows, original_tokens, config)
+        assert len(prompts) == 1
+        assert prompts[0] == ('תפודי', 'תפוחי אדמה קטנים')
+
+    def test_no_opportunity_for_canonical(self, config):
+        """Canonical item edited to another canonical → no alias prompt."""
+        rows = [{'inv_type': 'תפוחי אדמה קטנים', 'qty': 4}]
+        original_tokens = {0: 'מלפפונים'}
+        prompts = check_alias_opportunity(rows, original_tokens, config)
+        assert len(prompts) == 0
+
+    def test_no_opportunity_for_known_alias(self, config):
+        """Known alias → no redundant alias prompt."""
+        rows = [{'inv_type': 'תפוחי אדמה קטנים', 'qty': 4}]
+        original_tokens = {0: 'תפודים'}  # already in aliases
+        prompts = check_alias_opportunity(rows, original_tokens, config)
+        assert len(prompts) == 0
+
+
+# ============================================================
+# Help text tests
+# ============================================================
+
+class TestHelpTextHe:
+    def test_help_shows_hebrew_commands(self, config):
+        """Help text contains Hebrew command letters."""
+        ui = UIStrings(config)
+        assert 'א' in ui.help_text
+        assert 'ב' in ui.help_text
+        assert 'ע' in ui.help_text
+        assert 'פקודות:' in ui.help_text
+
+    def test_help_shows_hebrew_field_codes(self, config):
+        """Help text contains Hebrew field code descriptions."""
+        ui = UIStrings(config)
+        assert 'ת = תאריך' in ui.help_text
+        assert 'פ = פריט' in ui.help_text
+        assert 'כ = כמות' in ui.help_text
+
+    def test_help_notes_hebrew(self, config):
+        """Notes help uses Hebrew."""
+        ui = UIStrings(config)
+        assert 'ש' in ui.help_text_notes
+        assert 'ע' in ui.help_text_notes
+        assert 'ד' in ui.help_text_notes
+
+    def test_help_unparseable_hebrew(self, config):
+        """Unparseable help uses Hebrew."""
+        ui = UIStrings(config)
+        assert 'ע' in ui.help_text_unparseable
+        assert 'ד' in ui.help_text_unparseable
+
+
+# ============================================================
+# Edge cases: Hebrew field codes and commands
+# ============================================================
+
+class TestEdgeCasesHe:
+    def test_hebrew_field_code_regex(self, config, monkeypatch):
+        """1פ works as Hebrew field edit command."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        # 1פ → item picker, א → select first (עגבניות שרי), א → confirm
+        monkeypatch.setattr('builtins.input', make_input(["1פ", "א", "א"]))
+        outcome = review_loop(result, "...", config)
+        assert outcome['rows'][0]['inv_type'] == 'עגבניות שרי'
+
+    def test_hebrew_delete_prefix_regex(self, config, monkeypatch):
+        """ח1 works as Hebrew delete command."""
+        result = parse("נאכל ב-ל\n4 מלפפונים\n2 ספגטי", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["ח2", "א"]))
+        outcome = review_loop(result, "...", config)
+        assert len(outcome['rows']) == 1
+        assert outcome['rows'][0]['inv_type'] == 'מלפפונים'
+
+    def test_option_picker_hebrew_letters(self, config, monkeypatch):
+        """Closed-set picker uses Hebrew option letters."""
+        result = parse("4 מלפפונים ל-ל", config, today=TODAY)
+        # 1מ → location picker
+        # Options: [א]מחסן [ב]ל [ג]כ [ד]נ
+        # ג → select כ
+        monkeypatch.setattr('builtins.input', make_input(["1מ", "ג", "א"]))
+        outcome = review_loop(result, "4 מלפפונים ל-ל", config)
+        assert outcome['rows'][0]['vehicle_sub_unit'] == 'כ'
+
+    def test_edit_cancel_hebrew(self, config, monkeypatch, capsys):
+        """Empty Enter on edit prompt → cancel with Hebrew message."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        # 1כ → qty prompt, Enter (empty) → cancel, א → confirm
+        monkeypatch.setattr('builtins.input', make_input(["1כ", "", "א"]))
+        outcome = review_loop(result, "...", config)
+        output = capsys.readouterr().out
+        assert 'העריכה בוטלה' in output
+        assert outcome['rows'][0]['qty'] == 4  # unchanged
+
+    def test_unknown_command_hebrew(self, config, monkeypatch, capsys):
+        """Unknown command shows Hebrew error."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        monkeypatch.setattr('builtins.input', make_input(["xyz", "א"]))
+        outcome = review_loop(result, "...", config)
+        output = capsys.readouterr().out
+        assert 'פקודה לא מוכרת' in output
+
+    def test_confirm_incomplete_warning_hebrew(self, config, monkeypatch, capsys):
+        """Incomplete row warning uses Hebrew with כ/ל."""
+        result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
+        # + → add row, א → confirm, כ → yes on warning
+        monkeypatch.setattr('builtins.input', make_input(["+", "א", "כ"]))
+        outcome = review_loop(result, "...", config)
+        output = capsys.readouterr().out
+        assert 'אזהרה' in output
+        assert len(outcome['rows']) == 2

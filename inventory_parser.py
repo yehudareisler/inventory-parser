@@ -172,7 +172,7 @@ def _extract_location(text, config):
                 # For short/non-ASCII prepositions (e.g., Hebrew ל, ב):
                 # require word boundary before prep and separator between prep and loc
                 if len(prep) <= 2 and not prep.isascii():
-                    pattern = rf'(?:^|\s){re.escape(prep)}[\-\s]+{re.escape(loc)}(?=\s|$)'
+                    pattern = rf'(?:^|\s){re.escape(prep)}[\-\s]*{re.escape(loc)}(?=\s|$)'
                 else:
                     pattern = rf'\b{re.escape(prep)}\s+(?:the\s+)?{re.escape(loc)}\b'
                 m = re.search(pattern, text, re.IGNORECASE)

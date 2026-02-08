@@ -7,11 +7,203 @@ Interactive review/edit workflow:
 import re
 import sys
 from datetime import date
-from string import ascii_lowercase
 
 import yaml
 
 from inventory_parser import parse
+
+
+# ============================================================
+# UI Strings — all user-facing text, configurable per language
+# ============================================================
+
+_EN_DEFAULTS = {
+    'commands': {
+        'confirm': 'c',
+        'quit': 'q',
+        'retry': 'r',
+        'edit': 'e',
+        'save_note': 'n',
+        'skip': 's',
+        'delete_prefix': 'x',
+        'add_row': '+',
+        'help': '?',
+        'yes': 'y',
+        'no': 'n',
+    },
+    'field_codes': {
+        'd': 'date',
+        'i': 'inv_type',
+        'q': 'qty',
+        't': 'trans_type',
+        'l': 'vehicle_sub_unit',
+        'n': 'notes',
+        'b': 'batch',
+    },
+    'field_display_names': {
+        'inv_type': 'ITEM',
+        'trans_type': 'TRANS TYPE',
+        'vehicle_sub_unit': 'LOCATION',
+        'qty': 'QTY',
+        'date': 'DATE',
+        'notes': 'NOTES',
+        'batch': 'BATCH',
+    },
+    'table_headers': ['#', 'DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES'],
+    'option_letters': 'abcdefghijklmnopqrstuvwxyz',
+    'strings': {
+        'paste_prompt': "\nPaste message (empty line to finish, 'exit' to quit):",
+        'exit_word': 'exit',
+        'nothing_to_display': '\nNothing to display.',
+        'note_prefix': 'Note',
+        'unparseable_prefix': 'Could not parse',
+        'saved_note_prefix': 'Saved note',
+        'no_transactions': '\nNo transactions found.',
+        'review_prompt': '\n[c]onfirm / edit (e.g. 1i) / [r]etry / [q]uit  (? for help)',
+        'notes_only_prompt': 'Save as [n]ote / [e]dit and retry / [s]kip  (? for help)',
+        'unparseable_prompt': '\n[e]dit and retry / [s]kip  (? for help)',
+        'confirm_incomplete_warning': '  Warning: Row(s) {row_list} have incomplete fields (???). Confirm anyway? [{yes}/{no}] ',
+        'enter_letter_prompt': 'Enter letter (or Enter to cancel)> ',
+        'edit_cancelled': '  Edit cancelled.',
+        'invalid_choice': '  Invalid choice. Enter a letter ({first}-{last}).',
+        'open_field_prompt': '\n{display_name} (current: {current}, Enter to cancel)',
+        'invalid_quantity': '  Invalid quantity.',
+        'invalid_date': '  Invalid date. Use DD.MM.YY or YYYY-MM-DD.',
+        'invalid_batch': '  Invalid batch number.',
+        'row_deleted': '  Row {num} deleted.',
+        'invalid_row': '  Invalid row number.',
+        'row_updated': '  Row {num} {field} \u2192 {value}',
+        'unknown_command': '  Unknown command. Type ? for help, or try e.g. 1{example_field} to edit {example_name} on row 1.',
+        'original_text_label': '\nOriginal text:\n{text}\n',
+        'enter_corrected_text': 'Enter corrected text (empty line to finish):',
+        'save_alias_prompt': 'Save "{original}" \u2192 "{canonical}" as alias? [{yes}/{no}] ',
+        'title': '=== Inventory Message Parser ===',
+        'subtitle': "Paste a WhatsApp message to parse. Type 'exit' to quit.\n",
+        'goodbye': 'Goodbye.',
+        'discarded': '  Discarded.',
+        'confirmed_title': '\n=== Confirmed transactions ===',
+        'confirmed_count': '\n({count} row(s) confirmed)',
+        'config_not_found': 'Config file not found: {path}',
+        'config_hint': 'Create one based on config.yaml.example',
+        # Help text building blocks
+        'help_commands_header': 'Commands:',
+        'help_field_codes_header': 'Field codes:',
+        'help_examples_header': 'Examples:',
+        'help_confirm_desc': 'Confirm and save all rows',
+        'help_quit_desc': 'Quit (discard this parse)',
+        'help_retry_desc': 'Edit raw text and re-parse',
+        'help_edit_desc': 'Edit a field (e.g., {example})',
+        'help_delete_desc': 'Delete a row (e.g., {example})',
+        'help_add_desc': 'Add a new empty row',
+        'help_help_desc': 'Show this help',
+        'help_save_note_desc': 'Save as note (keep the text for reference)',
+        'help_skip_desc': 'Skip (discard this input)',
+    },
+}
+
+
+class UIStrings:
+    """All user-facing strings, commands, and field codes.
+
+    Reads from config['ui'] if present; falls back to English defaults.
+    """
+
+    def __init__(self, config):
+        ui = config.get('ui', {})
+        self.commands = {**_EN_DEFAULTS['commands'], **ui.get('commands', {})}
+        self.field_codes = ui.get('field_codes', _EN_DEFAULTS['field_codes'])
+        self.field_display_names = {
+            **_EN_DEFAULTS['field_display_names'],
+            **ui.get('field_display_names', {}),
+        }
+        self.table_headers = ui.get('table_headers', _EN_DEFAULTS['table_headers'])
+        self.option_letters = ui.get('option_letters', _EN_DEFAULTS['option_letters'])
+        self.strings = {**_EN_DEFAULTS['strings'], **ui.get('strings', {})}
+
+        # Pre-build regex helpers
+        self._field_code_chars = ''.join(re.escape(c) for c in self.field_codes.keys())
+        self._delete_prefix = re.escape(self.commands['delete_prefix'])
+
+        # Reverse lookup: field code letter → internal field name
+        self._field_code_to_field = dict(self.field_codes)
+
+        # Build help texts
+        self.help_text = self._build_help()
+        self.help_text_notes = self._build_help_notes()
+        self.help_text_unparseable = self._build_help_unparseable()
+
+    def s(self, key, **kwargs):
+        """Get a UI string, with optional format substitution."""
+        template = self.strings.get(key, key)
+        if kwargs:
+            return template.format(**kwargs)
+        return template
+
+    def field_name(self, internal_name):
+        return self.field_display_names.get(internal_name, internal_name.upper())
+
+    def _first_field_code_for(self, internal_name):
+        """Find the letter code for a given internal field name."""
+        for letter, field in self.field_codes.items():
+            if field == internal_name:
+                return letter
+        return '?'
+
+    def _build_help(self):
+        c = self.commands
+        # Find example field code for item
+        item_code = self._first_field_code_for('inv_type')
+        type_code = self._first_field_code_for('trans_type')
+        qty_code = self._first_field_code_for('qty')
+        del_pfx = c['delete_prefix']
+
+        # Build field code display lines
+        fc_lines = []
+        for letter, field in self.field_codes.items():
+            fc_lines.append(f'  {letter} = {self.field_name(field).lower()}')
+
+        lines = [
+            self.s('help_commands_header'),
+            f'  {c["confirm"]:14s} {self.s("help_confirm_desc")}',
+            f'  {c["quit"]:14s} {self.s("help_quit_desc")}',
+            f'  {c["retry"]:14s} {self.s("help_retry_desc")}',
+            f'  {"<#><field>":14s} {self.s("help_edit_desc", example=f"1{item_code}")}',
+            f'  {del_pfx + "<#>":14s} {self.s("help_delete_desc", example=f"{del_pfx}1")}',
+            f'  {c["add_row"]:14s} {self.s("help_add_desc")}',
+            f'  {c["help"]:14s} {self.s("help_help_desc")}',
+            '',
+            self.s('help_field_codes_header'),
+            *fc_lines,
+            '',
+            self.s('help_examples_header'),
+            f'  1{type_code}   {self.s("help_edit_desc", example=f"1{type_code}")}',
+            f'  2{qty_code}   {self.s("help_edit_desc", example=f"2{qty_code}")}',
+            f'  {del_pfx}3   {self.s("help_delete_desc", example=f"{del_pfx}3")}',
+        ]
+        return '\n'.join(lines)
+
+    def _build_help_notes(self):
+        c = self.commands
+        edit_cmd = c.get('edit', c['retry'])
+        lines = [
+            self.s('help_commands_header'),
+            f'  {c["save_note"]:6s} {self.s("help_save_note_desc")}',
+            f'  {edit_cmd:6s} {self.s("help_retry_desc")}',
+            f'  {c["skip"]:6s} {self.s("help_skip_desc")}',
+            f'  {c["help"]:6s} {self.s("help_help_desc")}',
+        ]
+        return '\n'.join(lines)
+
+    def _build_help_unparseable(self):
+        c = self.commands
+        edit_cmd = c.get('edit', c['retry'])
+        lines = [
+            self.s('help_commands_header'),
+            f'  {edit_cmd:6s} {self.s("help_retry_desc")}',
+            f'  {c["skip"]:6s} {self.s("help_skip_desc")}',
+            f'  {c["help"]:6s} {self.s("help_help_desc")}',
+        ]
+        return '\n'.join(lines)
 
 
 # ============================================================
@@ -33,14 +225,15 @@ def save_config(config, path):
 # Multi-line input
 # ============================================================
 
-def get_input():
+def get_input(ui):
     """Read multi-line paste. Empty line or Ctrl-D to finish."""
-    print("\nPaste message (empty line to finish, 'exit' to quit):")
+    print(ui.s('paste_prompt'))
+    exit_word = ui.s('exit_word').lower()
     lines = []
     try:
         while True:
             line = input()
-            if line.strip().lower() == 'exit':
+            if line.strip().lower() == exit_word:
                 return None
             if line.strip() == '' and lines:
                 break
@@ -55,7 +248,7 @@ def get_input():
 # Table display
 # ============================================================
 
-FIELD_HEADERS = ['#', 'DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES']
+CLOSED_SET_FIELDS = {'inv_type', 'trans_type', 'vehicle_sub_unit'}
 
 
 def _format_date(d):
@@ -91,40 +284,43 @@ def _row_to_cells(i, row):
     ]
 
 
-def display_result(rows, notes=None, unparseable=None):
+def display_result(rows, notes=None, unparseable=None, ui=None):
     """Print the result table, notes, and warnings."""
+    if ui is None:
+        ui = UIStrings({})
+
     if not rows and not notes and not unparseable:
-        print("\nNothing to display.")
+        print(ui.s('nothing_to_display'))
         return
 
+    headers = ui.table_headers
+
     if rows:
-        # Build table data
-        table = [FIELD_HEADERS]
+        table = [headers]
         for i, row in enumerate(rows):
             table.append(_row_to_cells(i, row))
 
-        # Calculate column widths
-        widths = [max(len(r[c]) for r in table) for c in range(len(FIELD_HEADERS))]
+        widths = [max(len(r[c]) for r in table) for c in range(len(headers))]
 
-        # Print header
-        header = ' | '.join(h.ljust(w) for h, w in zip(FIELD_HEADERS, widths))
-        print(f"\n{header}")
-        print('-' * len(header))
+        header_line = ' | '.join(h.ljust(w) for h, w in zip(headers, widths))
+        print(f"\n{header_line}")
+        print('-' * len(header_line))
 
-        # Print rows
         for row_cells in table[1:]:
             line = ' | '.join(c.ljust(w) for c, w in zip(row_cells, widths))
             print(line)
 
     if notes:
         print()
+        note_prefix = ui.s('note_prefix')
         for note in notes:
-            print(f'\U0001f4dd Note: "{note}"')
+            print(f'\U0001f4dd {note_prefix}: "{note}"')
 
     if unparseable:
         print()
+        unparse_prefix = ui.s('unparseable_prefix')
         for text in unparseable:
-            print(f'\u26a0 Could not parse: "{text}"')
+            print(f'\u26a0 {unparse_prefix}: "{text}"')
 
 
 # ============================================================
@@ -185,79 +381,63 @@ def parse_date(text):
 # Field editing
 # ============================================================
 
-FIELD_CODES = {
-    'd': 'date',
-    'i': 'inv_type',
-    'q': 'qty',
-    't': 'trans_type',
-    'l': 'vehicle_sub_unit',
-    'n': 'notes',
-    'b': 'batch',
-}
-
-CLOSED_SET_FIELDS = {'inv_type', 'trans_type', 'vehicle_sub_unit'}
-
-# User-facing display names for internal field names
-FIELD_DISPLAY_NAMES = {
-    'inv_type': 'ITEM',
-    'trans_type': 'TRANS TYPE',
-    'vehicle_sub_unit': 'LOCATION',
-    'qty': 'QTY',
-    'date': 'DATE',
-    'notes': 'NOTES',
-    'batch': 'BATCH',
-}
-
-
-def edit_closed_set(field, options):
+def edit_closed_set(field, options, ui):
     """Show lettered options, return selected value."""
-    display_name = FIELD_DISPLAY_NAMES.get(field, field.upper())
+    display_name = ui.field_name(field)
+    opt_letters = ui.option_letters
     print(f"\n{display_name}:")
     for i, opt in enumerate(options):
-        letter = ascii_lowercase[i] if i < 26 else str(i)
+        letter = opt_letters[i] if i < len(opt_letters) else str(i)
         print(f"  [{letter}] {opt}")
     print()
 
     while True:
-        choice = input("Enter letter (or Enter to cancel)> ").strip().lower()
-        if not choice:
-            print("  Edit cancelled.")
-            return None  # cancel
+        choice = input(ui.s('enter_letter_prompt')).strip()
+        # For case-insensitive matching on ASCII; no-op for Hebrew
+        choice_lower = choice.lower()
+        if not choice_lower:
+            print(ui.s('edit_cancelled'))
+            return None
 
-        # Try letter
-        idx = ord(choice[0]) - ord('a') if len(choice) == 1 and choice.isalpha() else -1
+        # Try letter lookup
+        idx = opt_letters.find(choice_lower[0]) if len(choice_lower) == 1 else -1
+        if idx == -1 and len(choice) == 1:
+            # Also try the original case (Hebrew letters have no case)
+            idx = opt_letters.find(choice[0])
         if 0 <= idx < len(options):
             return options[idx]
 
         # Try typing the value directly
         for opt in options:
-            if opt.lower().startswith(choice):
+            if opt.lower().startswith(choice_lower):
                 return opt
 
-        print(f"  Invalid choice. Enter a letter (a-{ascii_lowercase[min(len(options)-1, 25)]}).")
+        first = opt_letters[0] if opt_letters else '?'
+        last = opt_letters[min(len(options) - 1, len(opt_letters) - 1)]
+        print(ui.s('invalid_choice', first=first, last=last))
 
 
-def edit_open_field(field, current_value):
+def edit_open_field(field, current_value, ui):
     """Prompt for direct input. Returns new value or None to cancel."""
-    display_name = FIELD_DISPLAY_NAMES.get(field, field.upper())
+    display_name = ui.field_name(field)
     current_display = current_value if current_value is not None else ''
-    print(f"\n{display_name} (current: {current_display}, Enter to cancel)")
+    print(ui.s('open_field_prompt', display_name=display_name, current=current_display))
     raw = input("> ").strip()
     if not raw:
-        print("  Edit cancelled.")
-        return None  # cancel
+        print(ui.s('edit_cancelled'))
+        return None
 
     if field == 'qty':
         val = eval_qty(raw)
         if val is None:
-            print("  Invalid quantity.")
+            print(ui.s('invalid_quantity'))
             return None
         return val
 
     if field == 'date':
         val = parse_date(raw)
         if val is None:
-            print("  Invalid date. Use DD.MM.YY or YYYY-MM-DD.")
+            print(ui.s('invalid_date'))
             return None
         return val
 
@@ -265,7 +445,7 @@ def edit_open_field(field, current_value):
         try:
             return int(raw)
         except ValueError:
-            print("  Invalid batch number.")
+            print(ui.s('invalid_batch'))
             return None
 
     return raw  # notes
@@ -324,10 +504,8 @@ def update_partner(rows, idx, field, new_value):
     if field in ('inv_type', 'date', 'trans_type', 'batch'):
         partner[field] = new_value
     elif field == 'qty':
-        # Partner gets the negated value
         if isinstance(new_value, (int, float)):
             partner['qty'] = -new_value
-    # vehicle_sub_unit: don't auto-update (source/dest differ)
 
 
 # ============================================================
@@ -335,10 +513,7 @@ def update_partner(rows, idx, field, new_value):
 # ============================================================
 
 def check_alias_opportunity(rows, original_tokens, config):
-    """Check if any edited items should be saved as aliases.
-
-    original_tokens: dict mapping row index → original raw item token from parser.
-    """
+    """Check if any edited items should be saved as aliases."""
     aliases = config.get('aliases', {})
     items = [i.lower() for i in config.get('items', [])]
     prompts = []
@@ -349,14 +524,12 @@ def check_alias_opportunity(rows, original_tokens, config):
         canonical = rows[idx].get('inv_type', '')
         if not original or not canonical:
             continue
-        # Don't offer to save placeholder values as aliases
         if original == '???' or canonical == '???':
             continue
 
         orig_lower = original.lower()
         canon_lower = canonical.lower()
 
-        # Skip if already known
         if orig_lower == canon_lower:
             continue
         if orig_lower in (a.lower() for a in aliases):
@@ -369,12 +542,15 @@ def check_alias_opportunity(rows, original_tokens, config):
     return prompts
 
 
-def prompt_save_aliases(prompts, config):
+def prompt_save_aliases(prompts, config, ui):
     """Ask user whether to save new aliases."""
+    yes = ui.commands['yes']
     saved = False
     for original, canonical in prompts:
-        resp = input(f'Save "{original}" \u2192 "{canonical}" as alias? [y/n] ').strip().lower()
-        if resp == 'y':
+        resp = input(ui.s('save_alias_prompt',
+                          original=original, canonical=canonical,
+                          yes=ui.commands['yes'], no=ui.commands['no'])).strip().lower()
+        if resp == yes:
             if 'aliases' not in config:
                 config['aliases'] = {}
             config['aliases'][original] = canonical
@@ -383,149 +559,122 @@ def prompt_save_aliases(prompts, config):
 
 
 # ============================================================
-# Help text
-# ============================================================
-
-HELP_TEXT = """\
-Commands:
-  c             Confirm and save all rows
-  q             Quit (discard this parse)
-  r             Edit raw text and re-parse
-  <row><field>  Edit a field (e.g., 1i = edit item on row 1)
-  x<row>        Delete a row (e.g., x1)
-  +             Add a new empty row
-  ?             Show this help
-
-Field codes:
-  d = date    i = item    q = qty      t = type
-  l = location   n = notes   b = batch
-
-Examples:
-  1t   Edit transaction type on row 1
-  2q   Edit quantity on row 2
-  x3   Delete row 3
-"""
-
-HELP_TEXT_NOTES = """\
-Commands:
-  n   Save as note (keep the text for reference)
-  e   Edit the raw text and re-parse
-  s   Skip (discard this input)
-  ?   Show this help
-"""
-
-HELP_TEXT_UNPARSEABLE = """\
-Commands:
-  e   Edit the raw text and re-parse
-  s   Skip (discard this input)
-  ?   Show this help
-"""
-
-
-# ============================================================
 # Review loop
 # ============================================================
 
 def review_loop(result, raw_text, config):
     """Interactive review. Returns confirmed rows or None (quit)."""
+    ui = UIStrings(config)
     rows = list(result.rows)
     notes = list(result.notes)
     unparseable = list(result.unparseable)
 
-    # Track original item tokens for alias learning
-    # We need to get these from the parser — for now, track from initial state
     original_tokens = {}
 
+    cmd_confirm = ui.commands['confirm']
+    cmd_quit = ui.commands['quit']
+    cmd_retry = ui.commands['retry']
+    cmd_edit = ui.commands.get('edit', ui.commands['retry'])
+    cmd_save_note = ui.commands['save_note']
+    cmd_skip = ui.commands['skip']
+    cmd_add = ui.commands['add_row']
+    cmd_help = ui.commands['help']
+
+    # Build regex patterns from configured codes
+    delete_pattern = re.compile(rf'^{ui._delete_prefix}(\d+)$')
+    field_pattern = re.compile(rf'^(\d+)([{ui._field_code_chars}])$')
+
     while True:
-        display_result(rows, notes, unparseable)
+        display_result(rows, notes, unparseable, ui)
 
         if not rows and not notes and unparseable:
-            # Only unparseable content
-            print("\n[e]dit and retry / [s]kip  (? for help)")
+            print(ui.s('unparseable_prompt'))
             cmd = input("> ").strip().lower()
-            if cmd == '?' or cmd == 'h':
-                print(HELP_TEXT_UNPARSEABLE)
+            if cmd == cmd_help:
+                print(ui.help_text_unparseable)
                 continue
-            if cmd == 's':
+            if cmd == cmd_skip:
                 return None
-            if cmd == 'e':
-                rows, notes, unparseable = _edit_retry(raw_text, config)
+            if cmd == cmd_edit:
+                rows, notes, unparseable = _edit_retry(raw_text, config, ui)
                 continue
             continue
 
         if not rows and notes and not unparseable:
-            # Only notes
-            print("\nNo transactions found.")
-            print("Save as [n]ote / [e]dit and retry / [s]kip  (? for help)")
+            print(ui.s('no_transactions'))
+            print(ui.s('notes_only_prompt'))
             cmd = input("> ").strip().lower()
-            if cmd == '?' or cmd == 'h':
-                print(HELP_TEXT_NOTES)
+            if cmd == cmd_help:
+                print(ui.help_text_notes)
                 continue
-            if cmd == 'n':
+            if cmd == cmd_save_note:
                 return {'rows': [], 'notes': notes}
-            if cmd == 's':
+            if cmd == cmd_skip:
                 return None
-            if cmd == 'e':
-                rows, notes, unparseable = _edit_retry(raw_text, config)
+            if cmd == cmd_edit:
+                rows, notes, unparseable = _edit_retry(raw_text, config, ui)
                 continue
             continue
 
         # Normal review
-        print("\n[c]onfirm / edit (e.g. 1i) / [r]etry / [q]uit  (? for help)")
+        print(ui.s('review_prompt'))
         cmd = input("> ").strip().lower()
 
-        if cmd == '?' or cmd == 'h':
-            print(HELP_TEXT)
+        if cmd == cmd_help:
+            print(ui.help_text)
             continue
 
-        if cmd == 'c':
+        if cmd == cmd_confirm:
             # Warn about incomplete rows
             incomplete = [i + 1 for i, r in enumerate(rows)
                           if r.get('inv_type') == '???' or r.get('trans_type') is None
                           or r.get('vehicle_sub_unit') is None]
             if incomplete:
                 row_list = ', '.join(str(n) for n in incomplete)
-                resp = input(f"  Warning: Row(s) {row_list} have incomplete fields (???). Confirm anyway? [y/n] ").strip().lower()
-                if resp != 'y':
+                resp = input(ui.s('confirm_incomplete_warning',
+                                  row_list=row_list,
+                                  yes=ui.commands['yes'],
+                                  no=ui.commands['no'])).strip().lower()
+                if resp != ui.commands['yes']:
                     continue
 
             if original_tokens:
                 prompts = check_alias_opportunity(rows, original_tokens, config)
                 if prompts:
-                    prompt_save_aliases(prompts, config)
+                    prompt_save_aliases(prompts, config, ui)
             return {'rows': rows, 'notes': notes}
 
-        if cmd == 'q':
+        if cmd == cmd_quit:
             return None
 
-        if cmd == 'r':
-            rows, notes, unparseable = _edit_retry(raw_text, config)
+        if cmd == cmd_retry:
+            rows, notes, unparseable = _edit_retry(raw_text, config, ui)
             continue
 
-        if cmd == '+':
+        if cmd == cmd_add:
             rows.append(_empty_row())
             continue
 
-        # Delete row: x<n>
-        m = re.match(r'^x(\d+)$', cmd)
+        # Delete row
+        m = delete_pattern.match(cmd)
         if m:
             idx = int(m.group(1)) - 1
             if 0 <= idx < len(rows):
                 rows.pop(idx)
-                print(f"  Row {idx + 1} deleted.")
+                print(ui.s('row_deleted', num=idx + 1))
             else:
-                print(f"  Invalid row number.")
+                print(ui.s('invalid_row'))
             continue
 
         # Edit field: <row><field_code>
-        m = re.match(r'^(\d+)([diqtlnb])$', cmd)
+        m = field_pattern.match(cmd)
         if m:
             row_num = int(m.group(1)) - 1
             field_code = m.group(2)
-            field = FIELD_CODES[field_code]
+            field = ui._field_code_to_field[field_code]
 
             if row_num < 0 or row_num >= len(rows):
-                print(f"  Invalid row number.")
+                print(ui.s('invalid_row'))
                 continue
 
             old_value = rows[row_num].get(field)
@@ -533,30 +682,32 @@ def review_loop(result, raw_text, config):
 
             if field in CLOSED_SET_FIELDS:
                 options = get_closed_set_options(field, config)
-                new_value = edit_closed_set(field, options)
+                new_value = edit_closed_set(field, options, ui)
             else:
-                new_value = edit_open_field(field, old_value)
+                new_value = edit_open_field(field, old_value, ui)
 
             if new_value is not None:
-                # Find partner BEFORE changing the field (matching needs old value)
                 partner_idx = find_partner(rows, row_num)
                 rows[row_num][field] = new_value
-                # Update partner directly
                 if partner_idx is not None:
                     if field in ('inv_type', 'date', 'trans_type', 'batch'):
                         rows[partner_idx][field] = new_value
                     elif field == 'qty' and isinstance(new_value, (int, float)):
                         rows[partner_idx]['qty'] = -new_value
 
-                # Track for alias learning
                 if field == 'inv_type' and old_item_token and old_item_token != new_value:
                     original_tokens[row_num] = old_item_token
 
-                display_name = FIELD_DISPLAY_NAMES.get(field, field)
-                print(f"  Row {row_num + 1} {display_name.lower()} \u2192 {new_value}")
+                print(ui.s('row_updated',
+                           num=row_num + 1,
+                           field=ui.field_name(field).lower(),
+                           value=new_value))
             continue
 
-        print("  Unknown command. Type ? for help, or try e.g. 1i to edit item on row 1.")
+        # Unknown command
+        item_code = ui._first_field_code_for('inv_type')
+        item_name = ui.field_name('inv_type').lower()
+        print(ui.s('unknown_command', example_field=item_code, example_name=item_name))
 
     return None
 
@@ -573,10 +724,10 @@ def _empty_row():
     }
 
 
-def _edit_retry(raw_text, config):
+def _edit_retry(raw_text, config, ui):
     """Show raw text, let user edit, re-parse."""
-    print(f"\nOriginal text:\n{raw_text}\n")
-    print("Enter corrected text (empty line to finish):")
+    print(ui.s('original_text_label', text=raw_text))
+    print(ui.s('enter_corrected_text'))
     lines = []
     try:
         while True:
@@ -589,7 +740,6 @@ def _edit_retry(raw_text, config):
         pass
 
     if not lines:
-        # No edit, re-parse original
         new_text = raw_text
     else:
         new_text = '\n'.join(lines)
@@ -610,13 +760,15 @@ def main(config_path='config.yaml'):
         print("Create one based on config.yaml.example")
         sys.exit(1)
 
-    print("=== Inventory Message Parser ===")
-    print("Paste a WhatsApp message to parse. Type 'exit' to quit.\n")
+    ui = UIStrings(config)
+
+    print(ui.s('title'))
+    print(ui.s('subtitle'))
 
     while True:
-        raw_text = get_input()
+        raw_text = get_input(ui)
         if raw_text is None:
-            print("Goodbye.")
+            print(ui.s('goodbye'))
             break
 
         result = parse(raw_text, config)
@@ -624,23 +776,22 @@ def main(config_path='config.yaml'):
         outcome = review_loop(result, raw_text, config)
 
         if outcome is None:
-            print("  Discarded.")
+            print(ui.s('discarded'))
             continue
 
         confirmed_rows = outcome.get('rows', [])
         confirmed_notes = outcome.get('notes', [])
 
         if confirmed_rows:
-            print("\n=== Confirmed transactions ===")
-            display_result(confirmed_rows)
-            print(f"\n({len(confirmed_rows)} row(s) confirmed)")
+            print(ui.s('confirmed_title'))
+            display_result(confirmed_rows, ui=ui)
+            print(ui.s('confirmed_count', count=len(confirmed_rows)))
 
         if confirmed_notes:
+            saved_prefix = ui.s('saved_note_prefix')
             for note in confirmed_notes:
-                print(f'\U0001f4dd Saved note: "{note}"')
+                print(f'\U0001f4dd {saved_prefix}: "{note}"')
 
-        # Save config if aliases were learned
-        # (aliases are added to config dict in-place during review)
         save_config(config, config_path)
 
 
