@@ -914,3 +914,517 @@ def test_destination_changes_mid_list(config):
         'batch': 2,
         'notes': None,
     }
+
+
+# ============================================================
+# Input boundary conditions
+# ============================================================
+
+class TestInputBoundaries:
+    """Tests for degenerate and boundary-condition inputs."""
+
+    def test_empty_string(self, config):
+        """Empty input produces no output and no crash."""
+        result = parse("", config, today=TODAY)
+        assert result.rows == []
+        assert result.notes == []
+        assert result.unparseable == []
+
+    def test_whitespace_only(self, config):
+        """Whitespace-only input produces no output."""
+        result = parse("   \n  \n  ", config, today=TODAY)
+        assert result.rows == []
+        assert result.notes == []
+        assert result.unparseable == []
+
+    def test_single_number_no_item(self, config):
+        """A bare number with no item name → unparseable."""
+        result = parse("42", config, today=TODAY)
+        assert len(result.rows) == 0
+        assert len(result.unparseable) == 1
+
+    def test_single_item_no_qty_defaults_to_one(self, config):
+        """
+        A bare item name with no quantity → qty defaults to 1.
+
+        Per requirements: "If no quantity found but a known item is
+        found, default qty = 1."
+        """
+        result = parse("cucumbers", config, today=TODAY)
+        assert len(result.rows) == 1
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+        assert result.rows[0]['qty'] == 1
+
+    def test_just_a_location(self, config):
+        """
+        'to L' with no item or qty → classified as note.
+
+        Has alphabetic text and a destination, but no transaction data.
+        """
+        result = parse("to L", config, today=TODAY)
+        assert len(result.rows) == 0
+
+    def test_just_a_verb(self, config):
+        """'eaten' alone → classified as note (has alpha chars but no transaction)."""
+        result = parse("eaten", config, today=TODAY)
+        assert len(result.rows) == 0
+
+    def test_just_a_date(self, config):
+        """A bare date with nothing else → unparseable (no alpha text)."""
+        result = parse("15.3.25", config, today=TODAY)
+        assert len(result.rows) == 0
+        assert len(result.unparseable) == 1
+
+    def test_leading_minus_stripped(self, config):
+        """
+        Leading -/+ signs in message text are stripped.
+
+        The sign is determined by double-entry logic, not message text.
+        "-5 cucumbers to L" → qty=5 (positive), sign from source/dest logic.
+        """
+        result = parse("-5 cucumbers to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['qty'] == -5   # warehouse (source) side
+        assert result.rows[1]['qty'] == 5    # L (destination) side
+
+    def test_leading_plus_stripped(self, config):
+        """Leading + sign stripped, parsed normally."""
+        result = parse("+ 3 cucumbers to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[1]['qty'] == 3
+
+    def test_very_large_quantity(self, config):
+        """Very large numbers don't crash."""
+        result = parse("999999 cucumbers to L", config, today=TODAY)
+        assert result.rows[1]['qty'] == 999999
+
+    def test_special_characters_in_text(self, config):
+        """Parentheses and other special chars don't break parsing."""
+        result = parse("4 cucumbers (fresh) to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+
+# ============================================================
+# Item matching edge cases
+# ============================================================
+
+class TestItemMatchingEdgeCases:
+    """Tests for item name resolution edge cases."""
+
+    def test_substring_disambiguation_longest_wins(self, config):
+        """
+        'sweet cherry tomatoes' must match the full name, not 'cherry tomatoes'.
+
+        The matcher sorts by length descending and checks substrings,
+        so "sweet cherry tomatoes" (longer) should win.
+        """
+        result = parse("4 sweet cherry tomatoes to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'sweet cherry tomatoes'
+
+    def test_shorter_substring_exact(self, config):
+        """'cherry tomatoes' matches exactly, not 'sweet cherry tomatoes'."""
+        result = parse("4 cherry tomatoes to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cherry tomatoes'
+
+    def test_case_insensitive_matching(self, config):
+        """Item matching is case-insensitive."""
+        result = parse("4 CUCUMBERS to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+    def test_mixed_case_matching(self, config):
+        """Mixed case like 'CuCuMbErS' still matches."""
+        result = parse("4 CuCuMbErS to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+    def test_singular_matches_plural_canonical(self, config):
+        """'cucumber' (no s) matches canonical 'cucumbers'."""
+        result = parse("4 cucumber to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+    def test_extra_s_fuzzy_matches(self, config):
+        """'cucumberss' (extra s) fuzzy-matches 'cucumbers'."""
+        result = parse("4 cucumberss to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+    def test_completely_unknown_item_goes_to_unparseable(self, config):
+        """Totally unknown word → unparseable (qty found but item unknown)."""
+        result = parse("4 flibbertigibbet to L", config, today=TODAY)
+        assert len(result.rows) == 0
+        assert len(result.unparseable) == 1
+
+    def test_short_prefix_matches(self, config):
+        """Short prefix like 'small' matches 'small potatoes'."""
+        result = parse("4 small to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'small potatoes'
+
+    def test_embedded_item_in_longer_text(self, config):
+        """Item name inside longer text is still found (substring match)."""
+        result = parse("4 fresh cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+
+# ============================================================
+# Date parsing edge cases (parser-level)
+# ============================================================
+
+class TestDateParsingEdgeCases:
+    """Tests for date extraction in the parser (not TUI date editing)."""
+
+    def test_date_dd_mm_yyyy_full_year(self, config):
+        """Full four-digit year: 15.03.2025."""
+        result = parse("15.03.2025 4 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['date'] == date(2025, 3, 15)
+
+    def test_date_slash_format_in_parser(self, config):
+        """US slash format: M/DD/YY → date extracted."""
+        result = parse("3/15/25 4 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['date'] == date(2025, 3, 15)
+
+    def test_invalid_date_falls_back_to_today(self, config):
+        """Invalid date (32.13.25) is ignored; date falls back to today."""
+        result = parse("32.13.25 4 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['date'] == TODAY
+
+    def test_date_without_year_not_matched(self, config):
+        """Partial date '15.3' (no year) is not recognized as a date."""
+        result = parse("15.3 4 cucumbers to L", config, today=TODAY)
+        # 15.3 is not a valid date pattern (requires year component)
+        assert result.rows[0]['date'] == TODAY
+
+    def test_six_digit_ddmmyy_consumed_as_date(self, config):
+        """
+        150325 (DDMMYY) is consumed as date, NOT as quantity.
+
+        Date extraction runs before qty extraction, so the 6-digit
+        number is interpreted as 15.03.2025.
+        """
+        result = parse("150325 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['date'] == date(2025, 3, 15)
+        # Qty defaults to 1 since the number was consumed as a date
+        assert result.rows[1]['qty'] == 1
+
+    def test_first_valid_date_wins(self, config):
+        """When two date-like patterns appear, first match wins."""
+        result = parse("15.3.25 16.3.25 4 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['date'] == date(2025, 3, 15)
+
+
+# ============================================================
+# Math expression edge cases
+# ============================================================
+
+class TestMathExpressionEdgeCases:
+    """Tests for quantity math expression handling."""
+
+    def test_unicode_multiply_sign(self, config):
+        """Unicode × (multiplication sign) works like x and *."""
+        result = parse("2×17 spaghetti to L", config, today=TODAY)
+        assert result.rows[1]['qty'] == 34
+
+    def test_math_with_spaces(self, config):
+        """'2 x 17' with spaces around x."""
+        result = parse("2 x 17 spaghetti to L", config, today=TODAY)
+        assert result.rows[1]['qty'] == 34
+
+    def test_asterisk_multiplication(self, config):
+        """'11*920' with asterisk."""
+        result = parse("11*920 spaghetti to L", config, today=TODAY)
+        assert result.rows[1]['qty'] == 10120
+
+
+# ============================================================
+# Container conversion edge cases
+# ============================================================
+
+class TestContainerEdgeCases:
+    """Tests for container/unit conversion edge cases."""
+
+    def test_container_singular_and_plural(self, config):
+        """Both 'box' and 'boxes' match the same container type."""
+        r1 = parse("1 box cherry tomatoes to L", config, today=TODAY)
+        r2 = parse("2 boxes cherry tomatoes to L", config, today=TODAY)
+        assert r1.rows[1]['qty'] == 1980     # 1 × 1980
+        assert r2.rows[1]['qty'] == 3960     # 2 × 1980
+
+    def test_no_conversion_factor_keeps_raw_qty(self, config):
+        """
+        Container recognized but no conversion for this item → qty unchanged.
+
+        'cucumbers' has no unit_conversions entry, so '4 boxes cucumbers'
+        keeps qty=4 (the box is ignored or not converted).
+        """
+        result = parse("4 boxes cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+        # Qty stays 4 since there's no conversion factor for cucumbers boxes
+        assert abs(result.rows[0]['qty']) == 4
+
+    def test_half_without_container_not_fractional(self, config):
+        """
+        'half cucumbers' (no 'a [container]') → NOT recognized as fraction.
+
+        The "half a [container]" pattern requires "half a" followed by a
+        known container type. Without it, 'half' is just unmatched text.
+        """
+        result = parse("half cucumbers to L", config, today=TODAY)
+        # Item gets default qty=1 since "half" isn't parsed as a number
+        assert result.rows[1]['qty'] == 1
+
+
+# ============================================================
+# Context broadcasting edge cases
+# ============================================================
+
+class TestContextBroadcastingEdgeCases:
+    """Tests for multi-line context propagation edge cases."""
+
+    def test_backward_fill_from_end(self, config):
+        """
+        Items at the start with no context get filled from the end.
+
+        "4 cucumbers\n3 spaghetti\nto L" → both items get destination L.
+        """
+        result = parse("4 cucumbers\n3 spaghetti\nto L", config, today=TODAY)
+        assert len(result.rows) == 4  # 2 items × double-entry
+        for row in result.rows:
+            assert row['vehicle_sub_unit'] in ('warehouse', 'L')
+
+    def test_three_destinations_three_batches(self, config):
+        """Three different destinations → three separate batches."""
+        result = parse(
+            "3 cucumbers to L\n"
+            "2 spaghetti to C\n"
+            "1 chicken to N",
+            config, today=TODAY,
+        )
+        assert len(result.rows) == 6
+        assert result.rows[0]['batch'] == 1
+        assert result.rows[2]['batch'] == 2
+        assert result.rows[4]['batch'] == 3
+
+    def test_date_change_increments_batch(self, config):
+        """Same destination but different dates → different batches."""
+        result = parse(
+            "15.3.25 4 cucumbers to L\n"
+            "16.3.25 3 spaghetti to L",
+            config, today=TODAY,
+        )
+        assert result.rows[0]['batch'] == 1
+        assert result.rows[0]['date'] == date(2025, 3, 15)
+        assert result.rows[2]['batch'] == 2
+        assert result.rows[2]['date'] == date(2025, 3, 16)
+
+    def test_verb_changes_mid_message(self, config):
+        """
+        Verb change mid-message: 'eaten by L' then 'passed to C'.
+
+        First item gets eaten/L, second gets warehouse_to_branch/C.
+        """
+        result = parse(
+            "eaten by L\n"
+            "4 cucumbers\n"
+            "passed 3 spaghetti to C",
+            config, today=TODAY,
+        )
+        assert result.rows[0]['trans_type'] == 'eaten'
+        assert result.rows[0]['vehicle_sub_unit'] == 'L'
+        assert result.rows[1]['trans_type'] == 'warehouse_to_branch'
+
+    def test_blank_lines_dont_break_context(self, config):
+        """Blank lines between items don't break context propagation."""
+        result = parse(
+            "eaten by L 15.3.25\n"
+            "4 cucumbers\n"
+            "\n"
+            "\n"
+            "3 spaghetti",
+            config, today=TODAY,
+        )
+        assert len(result.rows) == 2
+        for row in result.rows:
+            assert row['trans_type'] == 'eaten'
+            assert row['vehicle_sub_unit'] == 'L'
+            assert row['date'] == date(2025, 3, 15)
+
+    def test_verb_only_line_applies_to_previous(self, config):
+        """
+        A verb-only line after an item applies retroactively.
+
+        "4 cucumbers to L\neaten" → cucumbers becomes eaten at L.
+        """
+        result = parse("4 cucumbers to L\neaten", config, today=TODAY)
+        assert len(result.rows) == 1  # eaten = non-zero-sum, single row
+        assert result.rows[0]['trans_type'] == 'eaten'
+        assert result.rows[0]['vehicle_sub_unit'] == 'L'
+
+
+# ============================================================
+# Multi-line merging edge cases
+# ============================================================
+
+class TestMultiLineMerging:
+    """Tests for how adjacent lines get merged."""
+
+    def test_qty_line_then_item_line_merged(self, config):
+        """
+        Qty on line 1, item on line 2 → merged into one transaction.
+
+        This is the "11*920\nsmalal potatoes" pattern.
+        Note: the merge copies item from line 2 into line 1's dict,
+        but location from line 2 is NOT carried over. Context for
+        location must come from elsewhere (a header line, a note, etc).
+        """
+        result = parse("20\ncucumbers", config, today=TODAY)
+        assert len(result.rows) == 1
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+        assert result.rows[0]['qty'] == 20
+
+    def test_two_qty_lines_then_item(self, config):
+        """
+        Two qty-only lines then an item: only second qty merges.
+
+        "10\n20\ncucumbers to L" → 10 becomes unparseable,
+        20 merges with cucumbers.
+        """
+        result = parse("10\n20\ncucumbers to L", config, today=TODAY)
+        assert any(r['inv_type'] == 'cucumbers' and r['qty'] == 20 for r in result.rows)
+
+    def test_qty_with_unmatched_text_no_merge(self, config):
+        """
+        Qty + unknown text line → does NOT merge with next item.
+
+        "4 flibbert\ncucumbers to L" → "4 flibbert" is unparseable,
+        cucumbers is parsed separately.
+        """
+        result = parse("4 flibbert\ncucumbers to L", config, today=TODAY)
+        assert len(result.unparseable) == 1
+        assert any(r['inv_type'] == 'cucumbers' for r in result.rows)
+
+
+# ============================================================
+# Double-entry bookkeeping invariants
+# ============================================================
+
+class TestDoubleEntryInvariants:
+    """Tests for double-entry accounting correctness."""
+
+    def test_transfer_sums_to_zero(self, config):
+        """Transfer transactions must sum to zero per batch."""
+        result = parse(
+            "passed 34 spaghetti to L\n"
+            "passed 10 cucumbers to C",
+            config, today=TODAY,
+        )
+        batch_sums = {}
+        for row in result.rows:
+            b = row['batch']
+            batch_sums[b] = batch_sums.get(b, 0) + row['qty']
+        for batch, total in batch_sums.items():
+            assert total == 0, f"Batch {batch} sums to {total}, expected 0"
+
+    def test_eaten_is_single_row_positive(self, config):
+        """Non-zero-sum type (eaten) produces a single row with positive qty."""
+        result = parse("eaten by L\n4 cucumbers", config, today=TODAY)
+        assert len(result.rows) == 1
+        assert result.rows[0]['qty'] == 4
+        assert result.rows[0]['trans_type'] == 'eaten'
+
+    def test_supplier_delivery_single_row(self, config):
+        """supplier_to_warehouse is non-zero-sum → single positive row."""
+        result = parse(
+            "11*920\nsmalal potatoes\nthat's what got from Ran Serah",
+            config, today=TODAY,
+        )
+        assert len(result.rows) == 1
+        assert result.rows[0]['qty'] == 10120
+        assert result.rows[0]['vehicle_sub_unit'] == 'warehouse'
+
+    def test_same_item_different_destinations_separate_batches(self, config):
+        """Same item to two destinations → separate batches, each sums to zero."""
+        result = parse(
+            "4 cucumbers to L\n"
+            "3 cucumbers to C",
+            config, today=TODAY,
+        )
+        batch1 = [r for r in result.rows if r['batch'] == 1]
+        batch2 = [r for r in result.rows if r['batch'] == 2]
+        assert sum(r['qty'] for r in batch1) == 0
+        assert sum(r['qty'] for r in batch2) == 0
+
+    def test_zero_qty_transfer(self, config):
+        """Zero-quantity transfer: both sides have qty=0."""
+        result = parse("0 cucumbers to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['qty'] == 0
+        assert result.rows[1]['qty'] == 0
+
+    def test_warehouse_receiving_positive(self, config):
+        """Receiving at warehouse → single positive row."""
+        result = parse(
+            "+ 3 boxes of small potatoes gathered into the warehouse",
+            config, today=TODAY,
+        )
+        assert len(result.rows) == 1
+        assert result.rows[0]['qty'] > 0
+        assert result.rows[0]['vehicle_sub_unit'] == 'warehouse'
+
+
+# ============================================================
+# Location matching edge cases
+# ============================================================
+
+class TestLocationMatching:
+    """Tests for location/destination extraction edge cases."""
+
+    def test_location_word_boundary(self, config):
+        """Location 'L' should not match inside longer words like 'London'."""
+        result = parse("4 cucumbers to London", config, today=TODAY)
+        # 'London' is not a known location, so no location is extracted
+        assert result.rows[0]['vehicle_sub_unit'] is None
+
+    def test_location_default_source(self, config):
+        """Transfer to a location uses warehouse as default source."""
+        result = parse("4 cucumbers to L", config, today=TODAY)
+        assert result.rows[0]['vehicle_sub_unit'] == 'warehouse'
+        assert result.rows[1]['vehicle_sub_unit'] == 'L'
+
+
+# ============================================================
+# Configuration edge cases
+# ============================================================
+
+class TestConfigEdgeCases:
+    """Tests for graceful handling of minimal/empty configs."""
+
+    def test_empty_config_no_crash(self):
+        """Parse with empty config doesn't crash."""
+        result = parse("4 cucumbers to L", {}, today=TODAY)
+        assert isinstance(result.rows, list)
+        assert isinstance(result.notes, list)
+        assert isinstance(result.unparseable, list)
+
+    def test_config_no_items(self):
+        """Config with no items → nothing matches, goes to unparseable."""
+        cfg = {'locations': ['L', 'C'], 'default_source': 'warehouse'}
+        result = parse("4 cucumbers to L", cfg, today=TODAY)
+        assert len(result.rows) == 0
+
+    def test_config_no_locations(self):
+        """Config with items but no locations → item parsed, no destination."""
+        cfg = {'items': ['cucumbers', 'spaghetti']}
+        result = parse("4 cucumbers to L", cfg, today=TODAY)
+        assert len(result.rows) >= 1
+        # Location is None since 'L' is not in config locations
+        assert result.rows[0]['vehicle_sub_unit'] is None
+
+    def test_config_no_action_verbs(self):
+        """Config with no action_verbs → verbs treated as unmatched text."""
+        cfg = {
+            'items': ['cucumbers'],
+            'locations': ['L'],
+            'default_source': 'warehouse',
+        }
+        result = parse("passed 4 cucumbers to L", cfg, today=TODAY)
+        assert len(result.rows) == 2  # still gets double-entry from location
+        # trans_type comes from default, not verb matching
+        assert result.rows[0]['trans_type'] == 'warehouse_to_branch'

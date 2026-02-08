@@ -94,12 +94,23 @@ Three transaction types don't require double-entry:
 
 ### Part identification
 
-The parser tokenizes each line and identifies parts by matching against config:
+The parser tokenizes each line and identifies parts by matching against config. Extraction order matters:
 
-- **Quantity**: numbers, math expressions (`2x17`, `11*920`), fractions (`half`)
+1. **Date** (extracted first — 6-digit numbers matching DDMMYY are consumed as dates, not quantities)
+2. **Location/destination** (with direction preposition: "to L", "by C", "from warehouse")
+3. **Action verb** (matched against configurable verb lists per transaction type)
+4. **Quantity** (numbers, math expressions, fractions; extracted from remaining text)
+5. **Item** (matched against remaining text after other parts are extracted)
+
+Part details:
+- **Quantity**: numbers, math expressions (`2x17`, `11*920`), fractions (`half a [container]`)
   - If no quantity found but a known item is found, default qty = 1
 - **Item**: matched against canonical item list + learned aliases (fuzzy for typos)
+  - Matching priority: exact substring → alias substring → singular/plural normalization → prefix/abbreviation → fuzzy → word-span combinations
+  - Longer matches take priority over shorter ones (e.g., "sweet cherry tomatoes" wins over "cherry tomatoes")
+  - Matching is case-insensitive
 - **Destination/source**: matched against location list (`L`, `C`, `N`, `warehouse`, etc.)
+  - Locations use word-boundary matching — "L" matches as a standalone word but not inside "London"
 - **Action verb**: matched against configurable verb lists per transaction type
 
 ### Action verb lists (configurable)
@@ -126,10 +137,13 @@ Each line falls into one of three categories:
 
 When parsing multi-line input:
 - Context (destination, source, date, action verb) is extracted from every line
-- Lines without their own context inherit from the **last seen** value
+- Lines without their own context inherit from the **last seen** value (forward propagation)
 - Lines with explicit context keep their own
 - A note line can still contribute context (e.g., "Rimon to N via naor by phone" provides destination N)
-- Batch number changes when destination changes
+- **Backward fill:** if items at the START of a message have no context, they receive context from the last-seen value anywhere in the message (e.g., items before a "to L" line get L as destination)
+- Batch number changes when destination **or date** changes
+- Blank lines between items do not break context propagation
+- When a verb changes mid-message, subsequent items use the new verb; the change does not retroactively affect previous items (unless a verb-only line immediately follows an item, in which case it modifies that item)
 
 ### The parser must handle:
 
@@ -143,24 +157,30 @@ When parsing multi-line input:
 **Quantities:**
 - Plain numbers: "4 cucumbers"
 - With units: "8 boxes", "2 small boxes", "half a box"
-- Math expressions: "2x17" → 34, "11*920" → 10120
+- Math expressions: "2x17" → 34, "11*920" → 10120; also supports `×` (unicode multiply) and space-separated `2 x 17`
 - Default qty = 1 when item is recognized but no number present
-- Unit shortcuts during editing: possibly "5b" = 5 boxes
+- Decimal quantities in messages are **not** supported (parser extracts integer tokens only; "2.5 cucumbers" → qty=2)
+- Leading `+`/`-` signs are stripped before parsing (sign is determined by double-entry logic, not message text)
+- Unit shortcuts during editing: possibly "5b" = 5 boxes (future scope)
 
 **Container/unit types and conversion:**
 - A single item may have multiple container types (e.g., "small box" vs "large box" of cherry tomatoes)
-- Learn container types as they come up (similar to alias learning)
-- If ambiguous which container type is meant, ask the user for clarification
-- Store learned container types per item in config
 - Each item has a base unit (e.g., count); QTY is always stored in the base unit
 - Conversion factors are stored per item per container type (e.g., 1 box of small potatoes = 920 count)
 - If conversion factor is known, auto-convert (e.g., "8 boxes" → QTY=7360)
-- If conversion factor is unknown, ask the user and save for future reuse
+- Container matching supports basic pluralization: "box" matches "boxes", "small box" matches "small boxes"
+- If container is recognized but has no conversion factor for this item, the raw qty is kept (no conversion applied)
+- "half a [container]" → qty=0.5 of that container, then converted to base units
+- "half" without "a [container]" is NOT recognized as a fraction (item gets default qty=1)
+- Learning container types and unknown-factor prompting are future scope
 
 **Dates:**
-- Various formats: "15.3.25", "3/16/25"
+- Supported formats: DD.M.YY, DD.MM.YYYY, M/DD/YY, DDMMYY (6-digit, no separators)
 - Prefer date written in message content
 - Fall back to current time if no date specified
+- Invalid dates (e.g., "32.13.25") are silently ignored and fall back to today
+- If multiple date-like patterns appear on one line, the first valid match wins
+- Date extraction runs **before** quantity extraction; a 6-digit number that forms a valid DDMMYY date is consumed as a date, not a quantity
 
 **Transaction type inference:**
 - Determined by action verb matching against configurable verb lists
@@ -170,12 +190,19 @@ When parsing multi-line input:
 - "gathered into warehouse" → receiving at warehouse
 - No verb → default transaction type (configurable, default: warehouse_to_branch)
 
-**Multi-entity messages:**
+**Multi-entity messages (future scope):**
 - "truck A: 3 items... truck B: 4 items..." → separate by entity
 - Infer entity scope from context
+- **Note:** Not implemented in first iteration. Messages are processed one at a time.
+
+**Multi-line merging:**
+- If a line has a quantity but no item, and the next line has an item but no quantity, they are merged into one parsed item (e.g., "11*920\nsmalal potatoes" → one item with qty=10120)
+- This merge only happens for adjacent pairs, and only if the quantity line has no unmatched text (no failed item match)
+- If a line has only a verb/notes (no qty, no item, no location), it is applied as context to the immediately preceding parsed item
+- Two quantity-only lines in sequence: only the second merges with the following item line; the first becomes unparseable
 
 **WhatsApp metadata:**
-- Strip known metadata patterns (e.g., `<This message was edited>`) before parsing
+- Strip known metadata patterns (e.g., `<This message was edited>`, `<Media omitted>`) before parsing
 
 ---
 
@@ -262,16 +289,29 @@ Notes extracted alongside transactions are shown below the table:
 TRANS_TYPE: [a] eaten [b] warehouse_to_branch [c] between_branch [d] ...
 > _
 ```
-Single keypress to select.
+Single keypress to select. Alternatively, type the beginning of the value name to select by prefix match. Empty Enter cancels the edit.
 
-**Open fields (QTY, NOTES):**
+**Open fields (QTY, NOTES, DATE, BATCH):**
 - Direct input
-- QTY accepts expressions: `2x17` → 34
+- QTY accepts expressions: `2x17` → 34 (also supports `×` and `*`). Invalid input shows error, value unchanged.
+- DATE accepts DD.MM.YY, DD.MM.YYYY, M/DD/YY, or YYYY-MM-DD (ISO). Invalid date shows error, value unchanged.
+- BATCH accepts integers only. Invalid input shows error, value unchanged.
+- NOTES accepts any free text.
+- Empty Enter cancels any open field edit.
 
 **Row operations:**
 - `x1` = delete row 1
-- `+` = add new row
+- `+` = add new row (creates row with inv_type='???', qty=0, trans_type=None, vehicle_sub_unit=None)
 - `c` = confirm and proceed
+
+**Double-entry partner auto-update:**
+When editing a field on a row that is part of a double-entry pair:
+- Editing **inv_type**, **date**, **trans_type**, or **batch** → partner row is updated to match
+- Editing **qty** → partner row gets the negated value (qty × -1)
+- Editing **vehicle_sub_unit** or **notes** → partner is NOT updated (locations are intentionally different in a pair)
+
+**Warning on confirm:**
+If any row has inv_type='???', trans_type=None, or vehicle_sub_unit=None, a warning is shown listing the incomplete row numbers. User must confirm (y) or decline (n) to continue editing.
 
 ### Edit and retry (raw text)
 
@@ -374,11 +414,39 @@ unit_conversions:
 
 ## 12. Test Cases
 
-All test cases live in `test_parser.py` (single source of truth).
+Test files:
+
+| File | Scope |
+|------|-------|
+| `test_parser.py` | Parser logic: extraction, matching, merging, broadcasting, result generation |
+| `test_tui.py` | TUI interaction: review loop, field editing, row ops, alias learning (English) |
+| `test_he.py` | Full Hebrew test suite: parser + TUI with Hebrew config |
+
+Tests are organized by:
+1. **Happy paths** — core workflows that must always work
+2. **Edge cases** — boundary conditions, ambiguous inputs, degenerate configs
+3. **Error recovery** — invalid commands, invalid input during editing, incomplete rows
+4. **State management** — multiple edits, delete-then-confirm, partner tracking
+5. **Invariants** — zero-sum transfers, context broadcasting correctness
+
+### Robustness expectations
+
+The parser and TUI must handle these gracefully (no crashes):
+- Empty input, whitespace-only input
+- Empty or minimal config (missing keys use defaults)
+- Rows with None/missing fields in display
+- Out-of-bounds row indices in find_partner
+- Invalid expressions in qty editing, invalid dates, invalid batch numbers
 
 ---
 
-## Next Steps
+## 13. Known Limitations / Future Scope
 
-1. Expand test cases in `test_parser.py`
-2. Implement the short-term desktop tool
+- **Multi-entity messages** ("truck A: ... truck B: ...") — not implemented
+- **Request/need detection** ("need for 80 aluminum pans") — not implemented
+- **Container type learning** — not implemented (manual config only)
+- **Unknown conversion factor prompting** — not implemented
+- **Multi-item lines** ("4 cucumbers and 3 carrots") — only first item is extracted
+- **Decimal quantities in messages** — not supported (integer extraction only)
+- **Google Sheets integration** — not implemented (output is display-only)
+- **Unit shortcut editing** ("5b" = 5 boxes) — not implemented
