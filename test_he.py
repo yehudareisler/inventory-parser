@@ -86,6 +86,8 @@ _HE_UI = {
         'help_help_desc': 'הצגת עזרה זו',
         'help_save_note_desc': 'שמירה כהערה (לשמירת הטקסט)',
         'help_skip_desc': 'דילוג (מחיקת קלט זה)',
+        'help_items_header': 'פריטים מוכרים:',
+        'help_aliases_header': 'כינויים:',
     },
 }
 
@@ -106,6 +108,8 @@ def config():
             'תפודים': 'תפוחי אדמה קטנים',
             'תפוא': 'תפוחי אדמה קטנים',
             'תפוח אדמה': 'תפוחי אדמה קטנים',
+            'עגבניה': 'עגבניות שרי',
+            'עגבניות': 'עגבניות שרי',
         },
         'locations': ['ל', 'כ', 'נ'],
         'default_source': 'מחסן',
@@ -350,6 +354,48 @@ def test_no_separator_location(config):
     assert result.rows[1]['qty'] == 3
 
 
+def test_mixed_parse_context_alias_unparseable(config, capsys):
+    """Alias, unmatched item, qty-less alias, and DDMMYY context line."""
+    result = parse(
+        "3 תפוח אדמה\n"
+        "2 תפוז\n"
+        "עגבניה\n"
+        "לכ 150226",
+        config,
+        today=TODAY,
+    )
+
+    # תפוח אדמה → תפוחי אדמה קטנים (alias), double-entry to כ
+    assert result.rows[0]['inv_type'] == 'תפוחי אדמה קטנים'
+    assert result.rows[0]['qty'] == -3
+    assert result.rows[1]['inv_type'] == 'תפוחי אדמה קטנים'
+    assert result.rows[1]['qty'] == 3
+    assert result.rows[1]['vehicle_sub_unit'] == 'כ'
+    assert result.rows[1]['date'] == date(2026, 2, 15)
+
+    # עגבניה → עגבניות שרי (alias), qty defaults to 1
+    assert result.rows[2]['inv_type'] == 'עגבניות שרי'
+    assert result.rows[2]['qty'] == -1
+    assert result.rows[3]['inv_type'] == 'עגבניות שרי'
+    assert result.rows[3]['qty'] == 1
+    assert result.rows[3]['vehicle_sub_unit'] == 'כ'
+    assert result.rows[3]['date'] == date(2026, 2, 15)
+
+    # לכ 150226 is a context line, not unparseable
+    assert 'לכ 150226' not in result.unparseable
+
+    # 2 תפוז should be unparseable (short token, high cutoff)
+    assert '2 תפוז' in result.unparseable
+
+    # Display should show known items hint after unparseable warning
+    ui = UIStrings(config)
+    display_result(result.rows, unparseable=result.unparseable, ui=ui)
+    output = capsys.readouterr().out
+    assert 'לא ניתן לפרש' in output
+    assert 'תפוז' in output
+    assert 'פריטים מוכרים:' in output
+
+
 # ============================================================
 # Double-entry partner detection (Hebrew items)
 # ============================================================
@@ -570,15 +616,16 @@ class TestReviewRowOpsHe:
 
 class TestEditRetryHe:
     def test_retry_from_unparseable(self, config, monkeypatch):
-        """ע → edit mode, corrected text, א → confirm."""
+        """ע → edit line 1, corrected text, א → confirm."""
         result = parse("4 82 95 3 1", config, today=TODAY)
         assert len(result.rows) == 0
         assert len(result.unparseable) > 0
 
         monkeypatch.setattr('builtins.input', make_input([
             "ע",                       # edit (unparseable context)
-            "4 מלפפונים ל-ל",           # corrected text
-            "",                        # end of input
+            "1",                       # edit line 1
+            "4 מלפפונים ל-ל",           # replacement text
+            "",                        # finish editing (re-parse)
             "א",                       # confirm
         ]))
         outcome = review_loop(result, "4 82 95 3 1", config)
@@ -596,12 +643,15 @@ class TestEditRetryHe:
         assert outcome is None
 
     def test_retry_from_normal_review(self, config, monkeypatch):
-        """ע → retry in normal review, new text, א → confirm."""
+        """ע → edit lines in normal review, א → confirm."""
         result = parse("נאכל ב-ל\n4 מלפפונים", config, today=TODAY)
         monkeypatch.setattr('builtins.input', make_input([
             "ע",                            # retry
-            "העבירו 2x17 ספגטי ל-ל",         # new text
-            "",                             # end of input
+            "1",                            # edit line 1
+            "העבירו 2x17 ספגטי ל-ל",         # replacement
+            "2",                            # edit line 2
+            "",                             # delete it
+            "",                             # finish editing (re-parse)
             "א",                            # confirm
         ]))
         outcome = review_loop(result, "נאכל ב-ל\n4 מלפפונים", config)
@@ -635,13 +685,14 @@ class TestNoteHandlingHe:
         assert outcome is None
 
     def test_note_retry(self, config, monkeypatch):
-        """ע → edit from note context, corrected text, א → confirm."""
+        """ע → edit line from note context, corrected text, א → confirm."""
         result = parse("רימון ל-נ דרך נאור בטלפון", config, today=TODAY)
         assert len(result.notes) >= 1
         monkeypatch.setattr('builtins.input', make_input([
             "ע",                    # edit
-            "4 מלפפונים ל-ל",        # corrected text
-            "",                     # end of input
+            "1",                    # edit line 1
+            "4 מלפפונים ל-ל",        # replacement text
+            "",                     # finish editing (re-parse)
             "א",                    # confirm
         ]))
         outcome = review_loop(result, "רימון ל-נ דרך נאור בטלפון", config)

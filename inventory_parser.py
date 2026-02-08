@@ -113,6 +113,8 @@ def _parse_line(text, config):
         item, raw = _match_item(remaining, config)
         if item:
             r['item'], r['item_raw'], r['has_item'] = item, raw, True
+        else:
+            r['_unmatched_text'] = remaining.strip()
 
     # Apply container conversion if we have item + container + qty
     if r['item'] and r['container'] and r['qty'] is not None:
@@ -146,6 +148,16 @@ def _extract_date(text):
         month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
         if year < 100:
             year += 2000
+        remaining = (text[:m.start()] + text[m.end():]).strip()
+        try:
+            return date(year, month, day), remaining
+        except ValueError:
+            pass
+    # DDMMYY (6 digits, no separators)
+    m = re.search(r'\b(\d{6})\b', text)
+    if m:
+        s = m.group(1)
+        day, month, year = int(s[:2]), int(s[2:4]), int(s[4:6]) + 2000
         remaining = (text[:m.start()] + text[m.end():]).strip()
         try:
             return date(year, month, day), remaining
@@ -400,7 +412,9 @@ def _merge_lines(parsed, config):
         current = parsed[i]
 
         # Qty without item + next has item without qty → merge
+        # But not if the qty line had text that failed item matching
         if (current['has_qty'] and not current['has_item']
+                and not current.get('_unmatched_text')
                 and i + 1 < len(parsed)):
             nxt = parsed[i + 1]
             if nxt['has_item'] and not nxt['has_qty']:

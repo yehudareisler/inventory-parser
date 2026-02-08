@@ -360,11 +360,11 @@ class TestReviewRowOps:
 
 class TestEditRetry:
     def test_retry_from_unparseable(self, config, monkeypatch):
-        """Unparseable input → edit raw text → re-parse succeeds.
+        """Unparseable input → edit line → re-parse succeeds.
 
         Stage 1: Parse "4 82 95 3 1" → no rows, goes to unparseable flow
-        Stage 2: User types "e" → edit mode, shown original text
-        Stage 3: User types corrected text + empty line to finish
+        Stage 2: User types "e" → edit mode, shown numbered lines
+        Stage 3: User edits line 1, then Enter to re-parse
         Stage 4: Re-parsed into rows → shown as table
         Stage 5: User types "c" → confirms
         """
@@ -374,8 +374,9 @@ class TestEditRetry:
 
         monkeypatch.setattr('builtins.input', make_input([
             "e",                    # choose edit
-            "4 cucumbers to L",     # corrected text
-            "",                     # empty line to finish
+            "1",                    # edit line 1
+            "4 cucumbers to L",     # replacement text
+            "",                     # finish editing (re-parse)
             "c",                    # confirm new parse
         ]))
         outcome = review_loop(result, "4 82 95 3 1", config)
@@ -393,19 +394,15 @@ class TestEditRetry:
         assert outcome is None
 
     def test_retry_from_normal_review(self, config, monkeypatch):
-        """Normal parse → user retries with different text.
-
-        Stage 1: Parse "eaten by L / 4 cucumbers" → 1 row (cucumbers)
-        Stage 2: User types "r" → retry mode
-        Stage 3: User types completely different text
-        Stage 4: Re-parsed → different rows shown
-        Stage 5: User types "c" → confirms
-        """
+        """Normal parse → user edits lines → re-parse with different result."""
         result = parse("eaten by L\n4 cucumbers", config, today=TODAY)
         monkeypatch.setattr('builtins.input', make_input([
             "r",                            # retry
-            "passed 2x17 spaghetti to L",   # new text
-            "",                             # end of input
+            "1",                            # edit line 1
+            "passed 2x17 spaghetti to L",   # replacement
+            "2",                            # edit line 2
+            "",                             # delete it
+            "",                             # finish editing (re-parse)
             "c",                            # confirm
         ]))
         outcome = review_loop(result, "eaten by L\n4 cucumbers", config)

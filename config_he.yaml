@@ -153,6 +153,10 @@ ui:
 
       '
     enter_corrected_text: 'הקלד טקסט מתוקן (שורה ריקה לסיום):'
+    edit_line_prompt: 'מספר שורה לעריכה (Enter לניתוח מחדש):'
+    edit_line_new: '  טקסט חדש (Enter למחיקה):'
+    edit_line_updated: '  שורה {num} עודכנה.'
+    edit_line_deleted: '  שורה {num} נמחקה.'
     save_alias_prompt: 'לשמור "{original}" → "{canonical}" כקיצור? [{yes}/{no}] '
     title: === מנתח הודעות מלאי ===
     subtitle: 'הדבק הודעת ווטסאפ לניתוח. הקלד ''יציאה'' ליציאה.

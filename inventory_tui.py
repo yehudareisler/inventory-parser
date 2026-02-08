@@ -76,6 +76,10 @@ _EN_DEFAULTS = {
         'unknown_command': '  Unknown command. Type ? for help, or try e.g. 1{example_field} to edit {example_name} on row 1.',
         'original_text_label': '\nOriginal text:\n{text}\n',
         'enter_corrected_text': 'Enter corrected text (empty line to finish):',
+        'edit_line_prompt': 'Line # to edit (Enter to re-parse):',
+        'edit_line_new': '  New text (Enter to delete line):',
+        'edit_line_updated': '  Line {num} updated.',
+        'edit_line_deleted': '  Line {num} deleted.',
         'save_alias_prompt': 'Save "{original}" \u2192 "{canonical}" as alias? [{yes}/{no}] ',
         'title': '=== Inventory Message Parser ===',
         'subtitle': "Paste a WhatsApp message to parse. Type 'exit' to quit.\n",
@@ -745,25 +749,45 @@ def empty_row():
 
 
 def _edit_retry(raw_text, config, ui):
-    """Show raw text, let user edit, re-parse."""
-    print(ui.s('original_text_label', text=raw_text))
-    print(ui.s('enter_corrected_text'))
-    lines = []
-    try:
-        while True:
-            line = input()
-            if line.strip() == '' and lines:
-                break
-            if line.strip() != '':
-                lines.append(line)
-    except EOFError:
-        pass
+    """Show numbered lines, let user edit by line number, re-parse."""
+    lines = [l for l in raw_text.split('\n') if l.strip()]
 
-    if not lines:
-        new_text = raw_text
-    else:
-        new_text = '\n'.join(lines)
+    while True:
+        print()
+        for i, line in enumerate(lines, 1):
+            print(f'  {i}. {line}')
+        print()
+        print(ui.s('edit_line_prompt'), end=' ')
+        choice = input().strip()
+        if not choice:
+            break
+        try:
+            num = int(choice)
+        except ValueError:
+            print(ui.s('invalid_row'))
+            continue
+        if num < 1 or num > len(lines) + 1:
+            print(ui.s('invalid_row'))
+            continue
+        if num == len(lines) + 1:
+            # Add a new line
+            print(ui.s('edit_line_new'), end=' ')
+            new = input().strip()
+            if new:
+                lines.append(new)
+                print(ui.s('edit_line_updated', num=num))
+            continue
+        print(f'  {lines[num - 1]}')
+        print(ui.s('edit_line_new'), end=' ')
+        new = input().strip()
+        if new:
+            lines[num - 1] = new
+            print(ui.s('edit_line_updated', num=num))
+        else:
+            del lines[num - 1]
+            print(ui.s('edit_line_deleted', num=num))
 
+    new_text = '\n'.join(lines) if lines else raw_text
     result = parse(new_text, config)
     return list(result.rows), list(result.notes), list(result.unparseable)
 
