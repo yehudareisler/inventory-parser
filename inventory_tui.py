@@ -98,6 +98,8 @@ _EN_DEFAULTS = {
         'help_help_desc': 'Show this help',
         'help_save_note_desc': 'Save as note (keep the text for reference)',
         'help_skip_desc': 'Skip (discard this input)',
+        'help_items_header': 'Known items:',
+        'help_aliases_header': 'Aliases:',
     },
 }
 
@@ -119,6 +121,8 @@ class UIStrings:
         self.table_headers = ui.get('table_headers', _EN_DEFAULTS['table_headers'])
         self.option_letters = ui.get('option_letters', _EN_DEFAULTS['option_letters'])
         self.strings = {**_EN_DEFAULTS['strings'], **ui.get('strings', {})}
+        self.items = config.get('items', [])
+        self.aliases = config.get('aliases', {})
 
         # Pre-build regex helpers
         self._field_code_chars = ''.join(re.escape(c) for c in self.field_codes.keys())
@@ -180,6 +184,16 @@ class UIStrings:
             f'  2{qty_code}   {self.s("help_edit_desc", example=f"2{qty_code}")}',
             f'  {del_pfx}3   {self.s("help_delete_desc", example=f"{del_pfx}3")}',
         ]
+        if self.items:
+            lines.append('')
+            lines.append(self.s('help_items_header'))
+            for item in self.items:
+                aliases_for = [a for a, canon in self.aliases.items()
+                               if canon == item]
+                if aliases_for:
+                    lines.append(f'  {item}  ({", ".join(aliases_for)})')
+                else:
+                    lines.append(f'  {item}')
         return '\n'.join(lines)
 
     def _build_help_notes(self):
@@ -211,12 +225,12 @@ class UIStrings:
 # ============================================================
 
 def load_config(path):
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def save_config(config, path):
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False,
                   allow_unicode=True)
 
@@ -251,13 +265,13 @@ def get_input(ui):
 CLOSED_SET_FIELDS = {'inv_type', 'trans_type', 'vehicle_sub_unit'}
 
 
-def _format_date(d):
+def format_date(d):
     if isinstance(d, date):
         return d.strftime('%Y-%m-%d')
     return str(d) if d else '???'
 
 
-def _format_qty(q):
+def format_qty(q):
     if q is None:
         return '???'
     if isinstance(q, float) and q == int(q):
@@ -265,18 +279,18 @@ def _format_qty(q):
     return str(q)
 
 
-def _row_has_warning(row):
+def row_has_warning(row):
     return (row.get('trans_type') is None
             or row.get('vehicle_sub_unit') is None)
 
 
 def _row_to_cells(i, row):
-    warn = '\u26a0 ' if _row_has_warning(row) else ''
+    warn = '\u26a0 ' if row_has_warning(row) else ''
     return [
         f'{warn}{i + 1}',
-        _format_date(row.get('date')),
+        format_date(row.get('date')),
         row.get('inv_type', '???'),
-        _format_qty(row.get('qty')),
+        format_qty(row.get('qty')),
         row.get('trans_type') or '???',
         row.get('vehicle_sub_unit') or '???',
         str(row.get('batch', '')),
@@ -321,6 +335,9 @@ def display_result(rows, notes=None, unparseable=None, ui=None):
         unparse_prefix = ui.s('unparseable_prefix')
         for text in unparseable:
             print(f'\u26a0 {unparse_prefix}: "{text}"')
+        if ui.items:
+            items_hint = ', '.join(ui.items)
+            print(f'  {ui.s("help_items_header")} {items_hint}')
 
 
 # ============================================================
@@ -392,7 +409,8 @@ def edit_closed_set(field, options, ui):
     print()
 
     while True:
-        choice = input(ui.s('enter_letter_prompt')).strip()
+        print(ui.s('enter_letter_prompt'), end='')
+        choice = input().strip()
         # For case-insensitive matching on ASCII; no-op for Hebrew
         choice_lower = choice.lower()
         if not choice_lower:
@@ -547,9 +565,10 @@ def prompt_save_aliases(prompts, config, ui):
     yes = ui.commands['yes']
     saved = False
     for original, canonical in prompts:
-        resp = input(ui.s('save_alias_prompt',
-                          original=original, canonical=canonical,
-                          yes=ui.commands['yes'], no=ui.commands['no'])).strip().lower()
+        print(ui.s('save_alias_prompt',
+                   original=original, canonical=canonical,
+                   yes=ui.commands['yes'], no=ui.commands['no']), end='')
+        resp = input().strip().lower()
         if resp == yes:
             if 'aliases' not in config:
                 config['aliases'] = {}
@@ -631,10 +650,11 @@ def review_loop(result, raw_text, config):
                           or r.get('vehicle_sub_unit') is None]
             if incomplete:
                 row_list = ', '.join(str(n) for n in incomplete)
-                resp = input(ui.s('confirm_incomplete_warning',
-                                  row_list=row_list,
-                                  yes=ui.commands['yes'],
-                                  no=ui.commands['no'])).strip().lower()
+                print(ui.s('confirm_incomplete_warning',
+                           row_list=row_list,
+                           yes=ui.commands['yes'],
+                           no=ui.commands['no']), end='')
+                resp = input().strip().lower()
                 if resp != ui.commands['yes']:
                     continue
 
@@ -652,7 +672,7 @@ def review_loop(result, raw_text, config):
             continue
 
         if cmd == cmd_add:
-            rows.append(_empty_row())
+            rows.append(empty_row())
             continue
 
         # Delete row
@@ -712,7 +732,7 @@ def review_loop(result, raw_text, config):
     return None
 
 
-def _empty_row():
+def empty_row():
     return {
         'date': date.today(),
         'inv_type': '???',
@@ -752,7 +772,7 @@ def _edit_retry(raw_text, config, ui):
 # Main
 # ============================================================
 
-def main(config_path='config.yaml'):
+def main(config_path='config_he.yaml'):
     try:
         config = load_config(config_path)
     except FileNotFoundError:
@@ -796,5 +816,5 @@ def main(config_path='config.yaml'):
 
 
 if __name__ == '__main__':
-    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config.yaml'
+    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config_he.yaml'
     main(config_path)

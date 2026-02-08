@@ -347,8 +347,11 @@ def _match_item(text, config):
             return item, text_clean
 
     # 5. Fuzzy match (whole text against items + aliases)
+    # Short tokens need higher cutoff to prevent false positives
+    # (e.g. תפוז/orange matching תפוא/potato at 0.75)
     all_targets = [i.lower() for i in items] + [a.lower() for a in aliases]
-    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=0.6)
+    fuzzy_cutoff = 0.8 if len(text_lower) <= 4 else 0.6
+    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=fuzzy_cutoff)
     if matches:
         return _resolve_match(matches[0], items, aliases), text_clean
 
@@ -365,7 +368,8 @@ def _match_item(text, config):
             if span in all_names:
                 return all_names[span], span
             # Fuzzy
-            matches = get_close_matches(span, all_targets, n=1, cutoff=0.6)
+            span_cutoff = 0.8 if len(span) <= 4 else 0.6
+            matches = get_close_matches(span, all_targets, n=1, cutoff=span_cutoff)
             if matches:
                 return _resolve_match(matches[0], items, aliases), span
 
@@ -497,8 +501,9 @@ def _generate_result(items, config, today):
             transaction_items.append(item)
         elif item['has_qty'] and not item['has_item']:
             result.unparseable.append(item['raw'])
-        elif item['trans_type'] and (item['location'] or item['date']):
-            # Header line — consumed by broadcasting, discard
+        elif (item['trans_type'] and (item['location'] or item['date'])) \
+                or (item['location'] and item['date']):
+            # Context-setting line (verb+destination, or destination+date)
             pass
         else:
             if _is_note(item):

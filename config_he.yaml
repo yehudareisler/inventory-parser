@@ -1,18 +1,17 @@
 items:
-  - עגבניות שרי
-  - עגבניות שרי מתוקות
-  - תפוחי אדמה קטנים
-  - ספגטי
-  - מלפפונים
-  - עוף
-  - גזר
-  - תבניות אלומיניום
-  - פרוט לופס
-  - קורנפלקס
-  - צ'יריוס
-  - קקאו פאפס
-  - טריקס
-
+- עגבניות שרי
+- עגבניות שרי מתוקות
+- תפוחי אדמה קטנים
+- ספגטי
+- מלפפונים
+- עוף
+- גזר
+- תבניות אלומיניום
+- פרוט לופס
+- קורנפלקס
+- צ'יריוס
+- קקאו פאפס
+- טריקס
 aliases:
   תפו"א קטנים: תפוחי אדמה קטנים
   שרי: עגבניות שרי
@@ -20,45 +19,56 @@ aliases:
   תפודים: תפוחי אדמה קטנים
   תפוא: תפוחי אדמה קטנים
   תפוח אדמה: תפוחי אדמה קטנים
-
+  עגבניה: עגבניות שרי
+  עגבניות: עגבניות שרי
 locations:
-  - ל
-  - כ
-  - נ
-
+- ל
+- כ
+- נ
 default_source: מחסן
-
 transaction_types:
-  - נקודת_התחלה
-  - ספירה_חוזרת
-  - מחסן_לסניף
-  - ספק_למחסן
-  - נאכל
-  - בין_סניפים
-  - בין_מחסנים
-  - בתוך_סניף
-
+- נקודת_התחלה
+- ספירה_חוזרת
+- מחסן_לסניף
+- ספק_למחסן
+- נאכל
+- בין_סניפים
+- בין_מחסנים
+- בתוך_סניף
 action_verbs:
-  מחסן_לסניף: [העביר, העבירו, עבר, עברו, נתן, שלח]
-  ספק_למחסן: [קיבל, קיבלו, קיבלנו, הגיע]
-  נאכל: [נאכל, נאכלו, אכל, אכלו, צרך, השתמש]
-
-prepositions:
-  to: [ל]
-  by: [ב]
-
-from_words: [מאת]
-
-filler_words: []
-
-non_zero_sum_types:
+  מחסן_לסניף:
+  - העביר
+  - העבירו
+  - עבר
+  - עברו
+  - נתן
+  - שלח
+  ספק_למחסן:
+  - קיבל
+  - קיבלו
+  - קיבלנו
+  - הגיע
+  נאכל:
   - נאכל
-  - נקודת_התחלה
-  - ספירה_חוזרת
-  - ספק_למחסן
-
+  - נאכלו
+  - אכל
+  - אכלו
+  - צרך
+  - השתמש
+prepositions:
+  to:
+  - ל
+  by:
+  - ב
+from_words:
+- מאת
+filler_words: []
+non_zero_sum_types:
+- נאכל
+- נקודת_התחלה
+- ספירה_חוזרת
+- ספק_למחסן
 default_transfer_type: מחסן_לסניף
-
 ui:
   commands:
     confirm: א
@@ -68,11 +78,10 @@ ui:
     save_note: ש
     skip: ד
     delete_prefix: ח
-    add_row: "+"
-    help: "?"
-    yes: כ
-    no: ל
-
+    add_row: +
+    help: '?'
+    true: כ
+    false: ל
   field_codes:
     ת: date
     פ: inv_type
@@ -81,7 +90,6 @@ ui:
     מ: vehicle_sub_unit
     ה: notes
     ק: batch
-
   field_display_names:
     date: תאריך
     inv_type: פריט
@@ -90,55 +98,88 @@ ui:
     vehicle_sub_unit: מיקום
     notes: הערות
     batch: קבוצה
-
-  table_headers: ["#", תאריך, פריט, כמות, סוג, מיקום, קבוצה, הערות]
+  table_headers:
+  - '#'
+  - תאריך
+  - פריט
+  - כמות
+  - סוג
+  - מיקום
+  - קבוצה
+  - הערות
   option_letters: אבגדהוזחטיכלמנסעפצקרשת
-
   strings:
-    paste_prompt: "\nהדבק הודעה (שורה ריקה לסיום, 'יציאה' ליציאה):"
+    paste_prompt: '
+
+      הדבק הודעה (שורה ריקה לסיום, ''יציאה'' ליציאה):'
     exit_word: יציאה
-    nothing_to_display: "\nאין מה להציג."
+    nothing_to_display: '
+
+      אין מה להציג.'
     note_prefix: הערה
     unparseable_prefix: לא ניתן לפרש
     saved_note_prefix: הערה נשמרה
-    no_transactions: "\nלא נמצאו עסקאות."
-    review_prompt: "\n[א]ישור / עריכה (לדוגמה 1פ) / [ע]ריכה מחדש / [ב]יטול  (? לעזרה)"
-    notes_only_prompt: "[ש]מור כהערה / [ע]ריכה מחדש / [ד]ילוג  (? לעזרה)"
-    unparseable_prompt: "\n[ע]ריכה מחדש / [ד]ילוג  (? לעזרה)"
-    confirm_incomplete_warning: "  אזהרה: שורה/ות {row_list} עם שדות חסרים (???). לאשר בכל זאת? [{yes}/{no}] "
-    enter_letter_prompt: "הקש אות (או Enter לביטול)> "
-    edit_cancelled: "  העריכה בוטלה."
-    invalid_choice: "  בחירה לא חוקית. הקש אות ({first}-{last})."
-    open_field_prompt: "\n{display_name} (נוכחי: {current}, Enter לביטול)"
-    invalid_quantity: "  כמות לא חוקית."
-    invalid_date: "  תאריך לא חוקי. השתמש ב-DD.MM.YY או YYYY-MM-DD."
-    invalid_batch: "  מספר קבוצה לא חוקי."
-    row_deleted: "  שורה {num} נמחקה."
-    invalid_row: "  מספר שורה לא חוקי."
-    row_updated: "  שורה {num} {field} \u2192 {value}"
-    unknown_command: "  פקודה לא מוכרת. הקש ? לעזרה, או נסה לדוגמה 1פ לעריכת פריט בשורה 1."
-    original_text_label: "\nטקסט מקורי:\n{text}\n"
-    enter_corrected_text: "הקלד טקסט מתוקן (שורה ריקה לסיום):"
-    save_alias_prompt: "לשמור \"{original}\" \u2192 \"{canonical}\" כקיצור? [{yes}/{no}] "
-    title: "=== מנתח הודעות מלאי ==="
-    subtitle: "הדבק הודעת ווטסאפ לניתוח. הקלד 'יציאה' ליציאה.\n"
+    no_transactions: '
+
+      לא נמצאו עסקאות.'
+    review_prompt: '
+
+      [א]ישור / עריכה (לדוגמה 1פ) / [ע]ריכה מחדש / [ב]יטול  (? לעזרה)'
+    notes_only_prompt: '[ש]מור כהערה / [ע]ריכה מחדש / [ד]ילוג  (? לעזרה)'
+    unparseable_prompt: '
+
+      [ע]ריכה מחדש / [ד]ילוג  (? לעזרה)'
+    confirm_incomplete_warning: '  אזהרה: שורה/ות {row_list} עם שדות חסרים (???).
+      לאשר בכל זאת? [{yes}/{no}] '
+    enter_letter_prompt: 'הקש אות (או Enter לביטול)> '
+    edit_cancelled: '  העריכה בוטלה.'
+    invalid_choice: '  בחירה לא חוקית. הקש אות ({first}-{last}).'
+    open_field_prompt: '
+
+      {display_name} (נוכחי: {current}, Enter לביטול)'
+    invalid_quantity: '  כמות לא חוקית.'
+    invalid_date: '  תאריך לא חוקי. השתמש ב-DD.MM.YY או YYYY-MM-DD.'
+    invalid_batch: '  מספר קבוצה לא חוקי.'
+    row_deleted: '  שורה {num} נמחקה.'
+    invalid_row: '  מספר שורה לא חוקי.'
+    row_updated: '  שורה {num} {field} → {value}'
+    unknown_command: '  פקודה לא מוכרת. הקש ? לעזרה, או נסה לדוגמה 1פ לעריכת פריט
+      בשורה 1.'
+    original_text_label: '
+
+      טקסט מקורי:
+
+      {text}
+
+      '
+    enter_corrected_text: 'הקלד טקסט מתוקן (שורה ריקה לסיום):'
+    save_alias_prompt: 'לשמור "{original}" → "{canonical}" כקיצור? [{yes}/{no}] '
+    title: === מנתח הודעות מלאי ===
+    subtitle: 'הדבק הודעת ווטסאפ לניתוח. הקלד ''יציאה'' ליציאה.
+
+      '
     goodbye: להתראות.
-    discarded: "  נמחק."
-    confirmed_title: "\n=== עסקאות מאושרות ==="
-    confirmed_count: "\n({count} שורה/ות אושרו)"
-    help_commands_header: "פקודות:"
-    help_field_codes_header: "קודי שדות:"
-    help_examples_header: "דוגמאות:"
+    discarded: '  נמחק.'
+    confirmed_title: '
+
+      === עסקאות מאושרות ==='
+    confirmed_count: '
+
+      ({count} שורה/ות אושרו)'
+    help_commands_header: 'פקודות:'
+    help_field_codes_header: 'קודי שדות:'
+    help_examples_header: 'דוגמאות:'
     help_confirm_desc: אישור ושמירת כל השורות
     help_quit_desc: ביטול (מחיקת הניתוח)
     help_retry_desc: עריכת טקסט מקורי וניתוח מחדש
-    help_edit_desc: "עריכת שדה (לדוגמה {example})"
-    help_delete_desc: "מחיקת שורה (לדוגמה {example})"
+    help_edit_desc: עריכת שדה (לדוגמה {example})
+    help_delete_desc: מחיקת שורה (לדוגמה {example})
     help_add_desc: הוספת שורה חדשה
     help_help_desc: הצגת עזרה זו
     help_save_note_desc: שמירה כהערה (לשמירת הטקסט)
     help_skip_desc: דילוג (מחיקת קלט זה)
-
+    help_items_header: 'פריטים מוכרים:'
+    help_aliases_header: 'כינויים:'
 unit_conversions:
   עגבניות שרי:
     base_unit: יחידה
