@@ -954,10 +954,8 @@ class TestStateMachineCompleteness:
     forcing the developer to remove the marker.
     """
 
-    # --- Gap: Missing state for notes + unparseable without rows ---
+    # --- notes + unparseable without rows ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="No state for notes+unparseable; falls to NORMAL_REVIEW where save-note is unavailable")
     def test_notes_and_unparseable_can_save_note(self, config, monkeypatch):
         """With notes + unparseable but no rows, saving as note should work.
 
@@ -971,8 +969,6 @@ class TestStateMachineCompleteness:
         assert outcome is not None
         assert len(outcome['notes']) >= 1
 
-    @pytest.mark.xfail(strict=True,
-                        reason="No state for notes+unparseable; shows review_prompt with [c]onfirm")
     def test_notes_and_unparseable_shows_appropriate_prompt(self, config, monkeypatch, capsys):
         """Should show note-save/edit/skip options, not the full review prompt.
 
@@ -988,8 +984,6 @@ class TestStateMachineCompleteness:
 
     # --- Gap: Unknown commands silently ignored in non-NORMAL states ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="Unknown commands silently ignored in UNPARSEABLE_ONLY state")
     def test_unknown_command_in_unparseable_gives_feedback(self, config, monkeypatch, capsys):
         """Typing gibberish in unparseable state should show error message.
 
@@ -1002,8 +996,6 @@ class TestStateMachineCompleteness:
         output = capsys.readouterr().out
         assert 'unknown' in output.lower()
 
-    @pytest.mark.xfail(strict=True,
-                        reason="Unknown commands silently ignored in NOTES_ONLY state")
     def test_unknown_command_in_notes_only_gives_feedback(self, config, monkeypatch, capsys):
         """Typing gibberish in notes-only state should show error message.
 
@@ -1018,8 +1010,6 @@ class TestStateMachineCompleteness:
 
     # --- Gap: Add row not available in non-NORMAL states ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="'+' (add row) not recognized in UNPARSEABLE_ONLY state")
     def test_add_row_from_unparseable(self, config, monkeypatch):
         """'+' should add a row, transitioning to NORMAL_REVIEW.
 
@@ -1033,8 +1023,6 @@ class TestStateMachineCompleteness:
         assert len(outcome['rows']) == 1
         assert outcome['rows'][0]['inv_type'] == '???'
 
-    @pytest.mark.xfail(strict=True,
-                        reason="'+' (add row) not recognized in NOTES_ONLY state")
     def test_add_row_from_notes_only(self, config, monkeypatch):
         """'+' should add a row, transitioning to NORMAL_REVIEW.
 
@@ -1049,8 +1037,6 @@ class TestStateMachineCompleteness:
 
     # --- Gap: Empty-after-deletion has no dedicated state ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="No EMPTY state; confirm silently returns zero rows after deletion")
     def test_empty_after_deletion_rejects_confirm(self, config, monkeypatch):
         """After deleting all rows, confirm should not return an empty result.
 
@@ -1064,8 +1050,6 @@ class TestStateMachineCompleteness:
 
     # --- Gap: parse_date DDMMYY inconsistency ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="TUI parse_date doesn't support DDMMYY unlike parser's _extract_date")
     def test_parse_date_ddmmyy(self):
         """parse_date should handle 6-digit DDMMYY (e.g. 150325 → 2025-03-15).
 
@@ -1077,8 +1061,6 @@ class TestStateMachineCompleteness:
 
     # --- Gap: Delete partner without feedback ---
 
-    @pytest.mark.xfail(strict=True,
-                        reason="No warning/feedback when deleting half of double-entry pair")
     def test_delete_half_of_pair_warns(self, config, monkeypatch, capsys):
         """Deleting one row of a double-entry pair should warn about the orphan.
 

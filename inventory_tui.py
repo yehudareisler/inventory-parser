@@ -71,6 +71,7 @@ _EN_DEFAULTS = {
         'invalid_date': '  Invalid date. Use DD.MM.YY or YYYY-MM-DD.',
         'invalid_batch': '  Invalid batch number.',
         'row_deleted': '  Row {num} deleted.',
+        'delete_partner_warning': '  Note: Row {partner_num} is the double-entry partner and now standalone.',
         'invalid_row': '  Invalid row number.',
         'row_updated': '  Row {num} {field} \u2192 {value}',
         'unknown_command': '  Unknown command. Type ? for help, or try e.g. 1{example_field} to edit {example_name} on row 1.',
@@ -389,6 +390,16 @@ def parse_date(text):
         except ValueError:
             pass
 
+    # DDMMYY (6 digits, no separators)
+    m = re.match(r'(\d{6})$', text)
+    if m:
+        s = m.group(1)
+        day, month, year = int(s[:2]), int(s[2:4]), int(s[4:6]) + 2000
+        try:
+            return date(year, month, day)
+        except ValueError:
+            pass
+
     # ISO format
     try:
         return date.fromisoformat(text)
@@ -610,33 +621,34 @@ def review_loop(result, raw_text, config):
     while True:
         display_result(rows, notes, unparseable, ui)
 
-        if not rows and not notes and unparseable:
-            print(ui.s('unparseable_prompt'))
-            cmd = input("> ").strip().lower()
-            if cmd == cmd_help:
-                print(ui.help_text_unparseable)
-                continue
-            if cmd == cmd_skip:
-                return None
-            if cmd == cmd_edit:
-                rows, notes, unparseable = _edit_retry(raw_text, config, ui)
-                continue
-            continue
+        if not rows:
+            if notes:
+                print(ui.s('no_transactions'))
+                print(ui.s('notes_only_prompt'))
+            elif unparseable:
+                print(ui.s('unparseable_prompt'))
+            else:
+                print(ui.s('unparseable_prompt'))
 
-        if not rows and notes and not unparseable:
-            print(ui.s('no_transactions'))
-            print(ui.s('notes_only_prompt'))
             cmd = input("> ").strip().lower()
+
             if cmd == cmd_help:
-                print(ui.help_text_notes)
+                print(ui.help_text_notes if notes else ui.help_text_unparseable)
                 continue
-            if cmd == cmd_save_note:
+            if cmd == cmd_save_note and notes:
                 return {'rows': [], 'notes': notes}
-            if cmd == cmd_skip:
+            if cmd in (cmd_skip, cmd_quit, cmd_confirm):
                 return None
-            if cmd == cmd_edit:
+            if cmd in (cmd_edit, cmd_retry):
                 rows, notes, unparseable = _edit_retry(raw_text, config, ui)
                 continue
+            if cmd == cmd_add:
+                rows.append(empty_row())
+                continue
+            # Unknown command
+            item_code = ui._first_field_code_for('inv_type')
+            item_name = ui.field_name('inv_type').lower()
+            print(ui.s('unknown_command', example_field=item_code, example_name=item_name))
             continue
 
         # Normal review
@@ -684,8 +696,12 @@ def review_loop(result, raw_text, config):
         if m:
             idx = int(m.group(1)) - 1
             if 0 <= idx < len(rows):
+                partner_idx = find_partner(rows, idx)
                 rows.pop(idx)
                 print(ui.s('row_deleted', num=idx + 1))
+                if partner_idx is not None:
+                    adjusted = partner_idx if partner_idx < idx else partner_idx - 1
+                    print(ui.s('delete_partner_warning', partner_num=adjusted + 1))
             else:
                 print(ui.s('invalid_row'))
             continue
