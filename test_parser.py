@@ -31,7 +31,7 @@ Context broadcasting:
 import pytest
 from datetime import date
 
-from inventory_parser import parse
+from inventory_parser import parse, fuzzy_resolve
 
 
 # ============================================================
@@ -1428,3 +1428,125 @@ class TestConfigEdgeCases:
         assert len(result.rows) == 2  # still gets double-entry from location
         # trans_type comes from default, not verb matching
         assert result.rows[0]['trans_type'] == 'warehouse_to_branch'
+
+
+# ============================================================
+# fuzzy_resolve unit tests
+# ============================================================
+
+class TestFuzzyResolve:
+    """Tests for the public fuzzy_resolve() function."""
+
+    def test_exact_match(self):
+        result, match_type = fuzzy_resolve('cucumbers', ['cucumbers', 'carrots'])
+        assert result == 'cucumbers'
+        assert match_type == 'exact'
+
+    def test_exact_match_case_insensitive(self):
+        result, match_type = fuzzy_resolve('CUCUMBERS', ['cucumbers', 'carrots'])
+        assert result == 'cucumbers'
+        assert match_type == 'exact'
+
+    def test_alias_match(self):
+        aliases = {'cukes': 'cucumbers'}
+        result, match_type = fuzzy_resolve('cukes', ['cucumbers'], aliases)
+        assert result == 'cucumbers'
+        assert match_type == 'alias'
+
+    def test_fuzzy_match(self):
+        result, match_type = fuzzy_resolve('cucumbrs', ['cucumbers', 'carrots'])
+        assert result == 'cucumbers'
+        assert match_type == 'fuzzy'
+
+    def test_no_match(self):
+        result, match_type = fuzzy_resolve('banana', ['cucumbers', 'carrots'])
+        assert result is None
+        assert match_type is None
+
+    def test_empty_text(self):
+        result, match_type = fuzzy_resolve('', ['cucumbers'])
+        assert result is None
+        assert match_type is None
+
+    def test_short_text_high_cutoff(self):
+        """Short text (<=4 chars) uses higher cutoff to avoid false positives."""
+        # 'car' is 3 chars — needs 0.8 cutoff, shouldn't match 'carrots' (ratio ~0.6)
+        result, match_type = fuzzy_resolve('car', ['carrots', 'cucumbers'])
+        assert result is None
+
+    def test_fuzzy_via_alias_key(self):
+        """Fuzzy match against an alias key resolves to the alias target."""
+        aliases = {'spuds': 'small potatoes'}
+        result, match_type = fuzzy_resolve('spudd', ['small potatoes'], aliases)
+        assert result == 'small potatoes'
+        assert match_type == 'fuzzy'
+
+
+# ============================================================
+# Location aliases in parsing
+# ============================================================
+
+class TestLocationAliases:
+    """Tests for location aliases in the parser."""
+
+    def test_location_alias_basic(self, config):
+        """Alias 'branch_c' → 'C' resolves as location C."""
+        config['aliases']['branch_c'] = 'C'
+        result = parse("12 cucumbers to branch_c", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'warehouse'
+        assert result.rows[1]['vehicle_sub_unit'] == 'C'
+
+    def test_location_alias_doesnt_break_items(self, config):
+        """Location alias coexists with item aliases."""
+        config['aliases']['branch_c'] = 'C'
+        result = parse("12 spuds to branch_c", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['inv_type'] == 'small potatoes'
+        assert result.rows[1]['vehicle_sub_unit'] == 'C'
+
+    def test_location_alias_not_item(self, config):
+        """An alias targeting a location doesn't interfere with item matching."""
+        config['aliases']['branch_c'] = 'C'
+        result = parse("4 cucumbers", config, today=TODAY)
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+        assert result.rows[0]['vehicle_sub_unit'] is None
+
+    def test_unknown_alias_target_no_crash(self, config):
+        """Alias targeting unknown entity doesn't crash location extraction."""
+        config['aliases']['mystery'] = 'nonexistent'
+        result = parse("4 cucumbers to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[1]['vehicle_sub_unit'] == 'L'
+
+
+# ============================================================
+# Container aliases in parsing
+# ============================================================
+
+class TestContainerAliases:
+    """Tests for container aliases in the parser."""
+
+    def test_container_alias_resolves(self, config):
+        """Alias 'bx' → 'box' resolves in container extraction."""
+        config['aliases']['bx'] = 'box'
+        result = parse("2 bx cherry tomatoes to L", config, today=TODAY)
+        assert len(result.rows) == 2
+        # 2 boxes * 1980 = 3960
+        assert abs(result.rows[0]['qty']) == 3960
+
+    def test_container_alias_plural(self, config):
+        """Container alias with English plural variant works."""
+        config['aliases']['bx'] = 'box'
+        result = parse("3 bxes cherry tomatoes", config, today=TODAY)
+        assert len(result.rows) == 1
+        # 3 boxes * 1980 = 5940
+        assert result.rows[0]['qty'] == 5940
+
+    def test_container_alias_no_interference(self, config):
+        """Container alias doesn't interfere when item has no conversions."""
+        config['aliases']['bx'] = 'box'
+        result = parse("5 bx cucumbers", config, today=TODAY)
+        # Cucumbers have no box conversion, so 'bx' as container → unconverted
+        assert len(result.rows) >= 1
+        assert result.rows[0]['inv_type'] == 'cucumbers'

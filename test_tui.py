@@ -1603,3 +1603,145 @@ class TestDirectAddConversion:
             pass
 
         assert config['unit_conversions']['cucumbers']['crate'] == 500
+
+
+# ============================================================
+# Fuzzy matching in interactive add functions
+# ============================================================
+
+class TestFuzzyAliasInteractive:
+    """Tests for fuzzy matching in add_alias_interactive."""
+
+    def test_fuzzy_target_confirmed(self, config, monkeypatch, capsys):
+        """Fuzzy target match with user confirmation saves resolved name."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        # 'cucumbrs' fuzzy matches 'cucumbers', user confirms with 'y'
+        monkeypatch.setattr('builtins.input', make_input([
+            'cukes', 'cucumbrs', 'y',
+        ]))
+        result = add_alias_interactive(config, ui)
+        assert result is True
+        assert config['aliases']['cukes'] == 'cucumbers'
+
+    def test_fuzzy_target_rejected(self, config, monkeypatch, capsys):
+        """Fuzzy target match rejected by user returns False."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cukes', 'cucumbrs', 'n',
+        ]))
+        result = add_alias_interactive(config, ui)
+        assert result is False
+        assert 'cukes' not in config['aliases']
+
+    def test_exact_target_no_confirmation(self, config, monkeypatch, capsys):
+        """Exact match doesn't prompt for confirmation."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        # Only 2 inputs needed (no confirmation step)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cukes', 'cucumbers',
+        ]))
+        result = add_alias_interactive(config, ui)
+        assert result is True
+        assert config['aliases']['cukes'] == 'cucumbers'
+
+    def test_unknown_target_saved_as_is(self, config, monkeypatch, capsys):
+        """Unknown target (no match) saved as-is without confirmation."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'xyz', 'banana',
+        ]))
+        result = add_alias_interactive(config, ui)
+        assert result is True
+        assert config['aliases']['xyz'] == 'banana'
+
+    def test_location_target_resolved(self, config, monkeypatch, capsys):
+        """Alias targeting a known location resolves correctly."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        # 'L' is exact match to a location
+        monkeypatch.setattr('builtins.input', make_input([
+            'branch_l', 'L',
+        ]))
+        result = add_alias_interactive(config, ui)
+        assert result is True
+        assert config['aliases']['branch_l'] == 'L'
+
+    def test_shows_locations_hint(self, config, monkeypatch, capsys):
+        """Interactive alias shows both items and locations as hints."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cukes', 'cucumbers',
+        ]))
+        add_alias_interactive(config, ui)
+        output = capsys.readouterr().out
+        assert 'L' in output  # location hint shown
+        assert 'cucumbers' in output  # item hint shown
+
+
+class TestFuzzyConversionInteractive:
+    """Tests for fuzzy matching in add_conversion_interactive."""
+
+    def test_fuzzy_item_confirmed(self, config, monkeypatch, capsys):
+        """Fuzzy item name match with confirmation saves correct conversion."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        # 'cucumbrs' fuzzy matches 'cucumbers', confirm 'y', then container + factor
+        monkeypatch.setattr('builtins.input', make_input([
+            'cucumbrs', 'y', 'crate', '500',
+        ]))
+        result = add_conversion_interactive(config, ui)
+        assert result is True
+        assert config['unit_conversions']['cucumbers']['crate'] == 500
+
+    def test_fuzzy_item_rejected(self, config, monkeypatch, capsys):
+        """Fuzzy item name match rejected returns False."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cucumbrs', 'n',
+        ]))
+        result = add_conversion_interactive(config, ui)
+        assert result is False
+
+    def test_exact_item_no_confirmation(self, config, monkeypatch, capsys):
+        """Exact item match doesn't prompt for confirmation."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cucumbers', 'crate', '500',
+        ]))
+        result = add_conversion_interactive(config, ui)
+        assert result is True
+        assert config['unit_conversions']['cucumbers']['crate'] == 500
+
+    def test_fuzzy_container_confirmed(self, config, monkeypatch, capsys):
+        """Fuzzy container name match with confirmation resolves correctly."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        # 'small bx' fuzzy matches 'small box', confirm
+        monkeypatch.setattr('builtins.input', make_input([
+            'cucumbers', 'small bx', 'y', '500',
+        ]))
+        result = add_conversion_interactive(config, ui)
+        assert result is True
+        assert config['unit_conversions']['cucumbers']['small box'] == 500
+
+
+# ============================================================
+# Paste prompt mentions alias/convert
+# ============================================================
+
+class TestPastePromptHints:
+    """Verify paste_prompt mentions alias/convert commands."""
+
+    def test_en_paste_prompt_mentions_alias(self, config):
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        prompt = ui.s('paste_prompt')
+        assert 'alias' in prompt.lower()
+        assert 'convert' in prompt.lower()

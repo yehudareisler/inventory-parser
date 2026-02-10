@@ -98,7 +98,7 @@ ui:
   table_headers: ['#', DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES]
   option_letters: abcdefghijklmnopqrstuvwxyz
   strings:
-    paste_prompt: "\nPaste message (empty line to finish, 'exit' to quit):"
+    paste_prompt: "\nPaste message ('exit' to quit, 'alias'/'convert' to add):"
     exit_word: exit
     nothing_to_display: "\nNothing to display."
     note_prefix: Note
@@ -157,11 +157,13 @@ ui:
     cmd_alias: alias
     cmd_convert: convert
     alias_short_prompt: "Alias (short name): "
-    alias_maps_to_prompt: "Maps to item: "
+    alias_maps_to_prompt: "Maps to: "
     alias_saved: "  Saved: {alias} \u2192 {item}"
     convert_item_prompt: "Item name: "
     convert_container_prompt: "Container name: "
     convert_factor_prompt: "How many units in 1 {container}: "
+    fuzzy_confirm: "  \u2192 {resolved}? [{yes}/{no}] "
+    help_locations_header: "Known locations:"
 
 unit_conversions:
   cherry tomatoes:

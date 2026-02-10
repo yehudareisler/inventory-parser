@@ -52,7 +52,7 @@ _EN_DEFAULTS = {
     'table_headers': ['#', 'DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES'],
     'option_letters': 'abcdefghijklmnopqrstuvwxyz',
     'strings': {
-        'paste_prompt': "\nPaste message (empty line to finish, 'exit' to quit):",
+        'paste_prompt': "\nPaste message ('exit' to quit, 'alias'/'convert' to add):",
         'exit_word': 'exit',
         'nothing_to_display': '\nNothing to display.',
         'note_prefix': 'Note',
@@ -113,11 +113,13 @@ _EN_DEFAULTS = {
         'cmd_alias': 'alias',
         'cmd_convert': 'convert',
         'alias_short_prompt': 'Alias (short name): ',
-        'alias_maps_to_prompt': 'Maps to item: ',
+        'alias_maps_to_prompt': 'Maps to: ',
         'alias_saved': '  Saved: {alias} \u2192 {item}',
         'convert_item_prompt': 'Item name: ',
         'convert_container_prompt': 'Container name: ',
         'convert_factor_prompt': 'How many units in 1 {container}: ',
+        'fuzzy_confirm': '  \u2192 {resolved}? [{yes}/{no}] ',
+        'help_locations_header': 'Known locations:',
     },
 }
 
@@ -720,40 +722,98 @@ def prompt_save_conversions(prompts, config, ui):
 # ============================================================
 
 def add_alias_interactive(config, ui):
-    """Interactively add an alias. Shows known items as hints."""
+    """Interactively add an alias with fuzzy matching."""
+    from inventory_parser import fuzzy_resolve
+
     items = config.get('items', [])
+    locations = config.get('locations', [])
     if items:
-        items_hint = ', '.join(items)
-        print(f'  {ui.s("help_items_header")} {items_hint}')
+        print(f'  {ui.s("help_items_header")} {", ".join(items)}')
+    if locations:
+        print(f'  {ui.s("help_locations_header")} {", ".join(locations)}')
     print(ui.s('alias_short_prompt'), end='')
     alias = input().strip()
     if not alias:
         return False
     print(ui.s('alias_maps_to_prompt'), end='')
-    item = input().strip()
-    if not item:
+    target_text = input().strip()
+    if not target_text:
         return False
+
+    # Fuzzy resolve against all known entities
+    all_entities = items + locations
+    resolved, match_type = fuzzy_resolve(target_text, all_entities,
+                                          config.get('aliases', {}))
+    if resolved and match_type == 'fuzzy':
+        yes = ui.commands['yes']
+        no = ui.commands['no']
+        print(ui.s('fuzzy_confirm', resolved=resolved, yes=yes, no=no), end='')
+        if input().strip().lower() != yes:
+            print(ui.s('edit_cancelled'))
+            return False
+        target = resolved
+    elif resolved:
+        target = resolved
+    else:
+        target = target_text
+
     if 'aliases' not in config:
         config['aliases'] = {}
-    config['aliases'][alias] = item
-    print(ui.s('alias_saved', alias=alias, item=item))
+    config['aliases'][alias] = target
+    print(ui.s('alias_saved', alias=alias, item=target))
     return True
 
 
 def add_conversion_interactive(config, ui):
-    """Interactively add a unit conversion."""
+    """Interactively add a unit conversion with fuzzy matching."""
+    from inventory_parser import fuzzy_resolve, get_all_containers
+
     items = config.get('items', [])
     if items:
-        items_hint = ', '.join(items)
-        print(f'  {ui.s("help_items_header")} {items_hint}')
+        print(f'  {ui.s("help_items_header")} {", ".join(items)}')
+
+    # Item name (fuzzy resolved)
     print(ui.s('convert_item_prompt'), end='')
-    item = input().strip()
-    if not item:
+    item_text = input().strip()
+    if not item_text:
         return False
+    resolved, match_type = fuzzy_resolve(item_text, items,
+                                          config.get('aliases', {}))
+    if resolved and match_type == 'fuzzy':
+        yes, no = ui.commands['yes'], ui.commands['no']
+        print(ui.s('fuzzy_confirm', resolved=resolved, yes=yes, no=no), end='')
+        if input().strip().lower() != yes:
+            print(ui.s('edit_cancelled'))
+            return False
+        item = resolved
+    elif resolved:
+        item = resolved
+    else:
+        item = item_text
+
+    # Container name (fuzzy resolved)
     print(ui.s('convert_container_prompt'), end='')
-    container = input().strip()
-    if not container:
+    cont_text = input().strip()
+    if not cont_text:
         return False
+    containers = list(get_all_containers(config))
+    if containers:
+        resolved_c, match_c = fuzzy_resolve(cont_text, containers)
+        if resolved_c and match_c == 'fuzzy':
+            yes, no = ui.commands['yes'], ui.commands['no']
+            print(ui.s('fuzzy_confirm', resolved=resolved_c, yes=yes, no=no), end='')
+            if input().strip().lower() != yes:
+                print(ui.s('edit_cancelled'))
+                return False
+            container = resolved_c
+        elif resolved_c:
+            container = resolved_c
+        else:
+            container = cont_text
+    else:
+        container = cont_text
+
+    # Factor
     print(ui.s('convert_factor_prompt', container=container), end='')
     resp = input().strip()
     if not resp:

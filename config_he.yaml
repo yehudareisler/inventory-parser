@@ -113,7 +113,7 @@ ui:
   strings:
     paste_prompt: '
 
-      הדבק הודעה (שורה ריקה לסיום, ''יציאה'' ליציאה):'
+      הדבק הודעה (''יציאה''/''כינוי''/''המרה'', שורה ריקה לסיום):'
     exit_word: יציאה
     nothing_to_display: '
 
@@ -198,11 +198,13 @@ ui:
     cmd_alias: כינוי
     cmd_convert: המרה
     alias_short_prompt: 'כינוי (שם קצר): '
-    alias_maps_to_prompt: 'שם הפריט: '
+    alias_maps_to_prompt: 'מיפוי ל: '
     alias_saved: '  נשמר: {alias} → {item}'
     convert_item_prompt: 'שם הפריט: '
     convert_container_prompt: 'שם המכולה: '
     convert_factor_prompt: 'כמה יחידות ב-1 {container}: '
+    fuzzy_confirm: '  → {resolved}? [{yes}/{no}] '
+    help_locations_header: 'מיקומים מוכרים:'
 unit_conversions:
   עגבניות שרי:
     base_unit: יחידה

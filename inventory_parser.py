@@ -13,6 +13,47 @@ from difflib import get_close_matches
 # Public API
 # ============================================================
 
+
+def fuzzy_resolve(text, candidates, aliases=None, cutoff=0.6):
+    """Resolve text against candidates + optional aliases.
+
+    Returns (canonical_name, match_type) where match_type is
+    'exact', 'alias', 'fuzzy', or (None, None) if no match.
+    """
+    text_lower = text.strip().lower()
+    if not text_lower:
+        return None, None
+
+    # 1. Exact match against candidates
+    for c in candidates:
+        if c.lower() == text_lower:
+            return c, 'exact'
+
+    # 2. Exact alias match
+    if aliases:
+        for a, target in aliases.items():
+            if a.lower() == text_lower:
+                return target, 'alias'
+
+    # 3. Fuzzy match against candidates + alias keys
+    all_targets = [c.lower() for c in candidates]
+    if aliases:
+        all_targets.extend(a.lower() for a in aliases)
+    short_cutoff = max(cutoff, 0.8) if len(text_lower) <= 4 else cutoff
+    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=short_cutoff)
+    if matches:
+        match = matches[0]
+        # Resolve back to canonical
+        if aliases:
+            for a, target in aliases.items():
+                if a.lower() == match:
+                    return target, 'fuzzy'
+        for c in candidates:
+            if c.lower() == match:
+                return c, 'fuzzy'
+
+    return None, None
+
 @dataclass
 class ParseResult:
     rows: list = field(default_factory=list)
@@ -171,6 +212,16 @@ def _extract_location(text, config):
     default_source = config.get('default_source', 'warehouse')
     all_locs = locations + ([default_source] if default_source not in locations else [])
 
+    # Expand with location aliases (aliases whose target is a known location)
+    aliases = config.get('aliases', {})
+    loc_set = {l.lower() for l in all_locs}
+    loc_alias_map = {}
+    for alias_key, alias_target in aliases.items():
+        if alias_target in all_locs or alias_target.lower() in loc_set:
+            loc_alias_map[alias_key] = alias_target
+            if alias_key not in all_locs:
+                all_locs.append(alias_key)
+
     # Configurable prepositions: {direction: [words]}
     prep_config = config.get('prepositions', {
         'to': ['to', 'into'],
@@ -194,7 +245,8 @@ def _extract_location(text, config):
                     if start < len(text) and text[start].isspace():
                         start += 1
                     remaining = (text[:start] + text[m.end():]).strip()
-                    return loc, direction, remaining
+                    canonical = loc_alias_map.get(loc, loc)
+                    return canonical, direction, remaining
     return None, None, text
 
 
@@ -261,23 +313,34 @@ def _extract_qty(text, config):
 
 
 def _extract_container(text, config):
-    containers = _get_all_containers(config)
+    containers = get_all_containers(config)
+
+    # Expand with container aliases
+    aliases = config.get('aliases', {})
+    cont_lower_set = {c.lower() for c in containers}
+    cont_alias_map = {}
+    for alias_key, alias_target in aliases.items():
+        if alias_target.lower() in cont_lower_set:
+            cont_alias_map[alias_key] = alias_target
+            containers.add(alias_key)
+
     for cont in sorted(containers, key=len, reverse=True):
+        canonical = cont_alias_map.get(cont, cont)
         for variant in _container_variants(cont):
             # Try anchored first (container right after number)
             m = re.match(rf'{re.escape(variant)}\b', text.strip(), re.IGNORECASE)
             if m:
                 remaining = text.strip()[m.end():].strip()
-                return cont, remaining
+                return canonical, remaining
             # Then anywhere in text
             m = re.search(rf'\b{re.escape(variant)}\b', text, re.IGNORECASE)
             if m:
                 remaining = (text[:m.start()] + text[m.end():]).strip()
-                return cont, remaining
+                return canonical, remaining
     return None, text
 
 
-def _get_all_containers(config):
+def get_all_containers(config):
     containers = set()
     for convs in config.get('unit_conversions', {}).values():
         for key in convs:
