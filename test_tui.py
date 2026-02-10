@@ -1214,11 +1214,24 @@ class TestCopyToClipboard:
         def mock_run(cmd, input, check):
             captured['input'] = input
             captured['cmd'] = cmd
-        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+        # Use xclip (non-WSL path) to test plain UTF-8 encoding
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/xclip' if cmd == 'xclip' else None)
         monkeypatch.setattr('subprocess.run', mock_run)
 
         copy_to_clipboard("hello\tworld")
         assert captured['input'] == b"hello\tworld"
+
+    def test_clip_exe_sends_utf16le_with_bom(self, monkeypatch):
+        """clip.exe receives UTF-16LE with BOM for proper Windows Unicode support."""
+        captured = {}
+        def mock_run(cmd, input, check):
+            captured['input'] = input
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        copy_to_clipboard("מחסן")
+        expected = b'\xff\xfe' + "מחסן".encode('utf-16-le')
+        assert captured['input'] == expected
 
     def test_fallback_on_first_tool_failure(self, monkeypatch):
         """If first tool fails, tries the next one."""

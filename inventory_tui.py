@@ -408,7 +408,12 @@ def copy_to_clipboard(text):
     for cmd in commands:
         if shutil.which(cmd[0]):
             try:
-                subprocess.run(cmd, input=text.encode('utf-8'), check=True)
+                if cmd[0] == 'clip.exe':
+                    # clip.exe needs UTF-16LE with BOM for non-ASCII text
+                    encoded = b'\xff\xfe' + text.encode('utf-16-le')
+                else:
+                    encoded = text.encode('utf-8')
+                subprocess.run(cmd, input=encoded, check=True)
                 return True
             except (subprocess.CalledProcessError, OSError):
                 continue
