@@ -141,6 +141,7 @@ ui:
     invalid_date: '  תאריך לא חוקי. השתמש ב-DD.MM.YY או YYYY-MM-DD.'
     invalid_batch: '  מספר קבוצה לא חוקי.'
     row_deleted: '  שורה {num} נמחקה.'
+    delete_partner_warning: '  הערה: שורה {partner_num} היא הצד השני של רישום כפול ועכשיו עצמאית.'
     invalid_row: '  מספר שורה לא חוקי.'
     row_updated: '  שורה {num} {field} → {value}'
     unknown_command: '  פקודה לא מוכרת. הקש ? לעזרה, או נסה לדוגמה 1פ לעריכת פריט
@@ -170,6 +171,12 @@ ui:
     confirmed_count: '
 
       ({count} שורה/ות אושרו)'
+    clipboard_copied: '
+
+      ({count} שורה/ות הועתקו ללוח)'
+    clipboard_failed: '
+
+      לא ניתן להעתיק ללוח. מציג טבלה במקום:'
     help_commands_header: 'פקודות:'
     help_field_codes_header: 'קודי שדות:'
     help_examples_header: 'דוגמאות:'
