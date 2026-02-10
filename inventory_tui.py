@@ -88,6 +88,8 @@ _EN_DEFAULTS = {
         'discarded': '  Discarded.',
         'confirmed_title': '\n=== Confirmed transactions ===',
         'confirmed_count': '\n({count} row(s) confirmed)',
+        'clipboard_copied': '\n({count} row(s) copied to clipboard)',
+        'clipboard_failed': '\nCould not copy to clipboard. Showing table instead:',
         'config_not_found': 'Config file not found: {path}',
         'config_hint': 'Create one based on config.yaml.example',
         # Help text building blocks
@@ -343,6 +345,58 @@ def display_result(rows, notes=None, unparseable=None, ui=None):
         if ui.items:
             items_hint = ', '.join(ui.items)
             print(f'  {ui.s("help_items_header")} {items_hint}')
+
+
+# ============================================================
+# Clipboard export
+# ============================================================
+
+def format_rows_for_clipboard(rows):
+    """Format confirmed rows as TSV for pasting into Excel/Google Sheets.
+
+    Returns a tab-separated string: header line + one line per row.
+    Empty rows list returns empty string.
+    """
+    if not rows:
+        return ''
+
+    headers = ['DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES']
+    lines = ['\t'.join(headers)]
+
+    for row in rows:
+        cells = [
+            format_date(row.get('date')),
+            row.get('inv_type', '???'),
+            format_qty(row.get('qty')),
+            row.get('trans_type') or '???',
+            row.get('vehicle_sub_unit') or '???',
+            str(row.get('batch', '')),
+            row.get('notes') or '',
+        ]
+        lines.append('\t'.join(cells))
+
+    return '\n'.join(lines)
+
+
+def copy_to_clipboard(text):
+    """Copy text to system clipboard. Returns True on success, False otherwise."""
+    import subprocess
+    import shutil
+
+    commands = [
+        ['clip.exe'],                          # WSL2
+        ['xclip', '-selection', 'clipboard'],  # Linux
+        ['pbcopy'],                            # macOS
+    ]
+
+    for cmd in commands:
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, input=text.encode('utf-8'), check=True)
+                return True
+            except (subprocess.CalledProcessError, OSError):
+                continue
+    return False
 
 
 # ============================================================
@@ -843,9 +897,13 @@ def main(config_path='config_he.yaml'):
         confirmed_notes = outcome.get('notes', [])
 
         if confirmed_rows:
-            print(ui.s('confirmed_title'))
-            display_result(confirmed_rows, ui=ui)
-            print(ui.s('confirmed_count', count=len(confirmed_rows)))
+            tsv = format_rows_for_clipboard(confirmed_rows)
+            if copy_to_clipboard(tsv):
+                print(ui.s('clipboard_copied', count=len(confirmed_rows)))
+            else:
+                print(ui.s('clipboard_failed'))
+                display_result(confirmed_rows, ui=ui)
+                print(ui.s('confirmed_count', count=len(confirmed_rows)))
 
         if confirmed_notes:
             saved_prefix = ui.s('saved_note_prefix')

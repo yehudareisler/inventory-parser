@@ -15,6 +15,7 @@ from inventory_parser import parse, ParseResult
 from inventory_tui import (
     review_loop, display_result, eval_qty, parse_date,
     find_partner, update_partner, check_alias_opportunity,
+    format_rows_for_clipboard, copy_to_clipboard,
 )
 
 
@@ -1076,3 +1077,294 @@ class TestStateMachineCompleteness:
         output = capsys.readouterr().out
         assert ('partner' in output.lower() or 'pair' in output.lower()
                 or 'double' in output.lower())
+
+
+# ============================================================
+# Clipboard export tests
+# ============================================================
+
+class TestFormatRowsForClipboard:
+    """Tests for format_rows_for_clipboard (TSV formatting for Excel paste)."""
+
+    def _make_row(self, **overrides):
+        row = {
+            'date': TODAY, 'inv_type': 'cucumbers', 'qty': 4,
+            'trans_type': 'eaten', 'vehicle_sub_unit': 'L',
+            'batch': 1, 'notes': None,
+        }
+        row.update(overrides)
+        return row
+
+    def test_single_row_produces_header_and_data(self):
+        """One row → two lines: header + data."""
+        tsv = format_rows_for_clipboard([self._make_row()])
+        lines = tsv.split('\n')
+        assert len(lines) == 2
+        assert lines[0].startswith('DATE')
+
+    def test_multiple_rows(self):
+        """N rows → N+1 lines (header + N data)."""
+        rows = [self._make_row(inv_type='cucumbers'),
+                self._make_row(inv_type='spaghetti')]
+        tsv = format_rows_for_clipboard(rows)
+        lines = tsv.split('\n')
+        assert len(lines) == 3
+
+    def test_tab_separated(self):
+        """Columns are separated by tabs, not spaces or pipes."""
+        tsv = format_rows_for_clipboard([self._make_row()])
+        header, data = tsv.split('\n')
+        assert '\t' in header
+        assert '\t' in data
+        assert ' | ' not in data
+
+    def test_columns_in_correct_order(self):
+        """Header order: DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES."""
+        tsv = format_rows_for_clipboard([self._make_row()])
+        header = tsv.split('\n')[0]
+        cols = header.split('\t')
+        assert cols == ['DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES']
+
+    def test_data_columns_match_header(self):
+        """Data values appear in the correct column positions."""
+        row = self._make_row(
+            date=date(2025, 6, 15), inv_type='spaghetti', qty=34,
+            trans_type='eaten', vehicle_sub_unit='L', batch=2, notes='test',
+        )
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[0] == '2025-06-15'   # DATE
+        assert data[1] == 'spaghetti'    # ITEM
+        assert data[2] == '34'           # QTY
+        assert data[3] == 'eaten'        # TYPE
+        assert data[4] == 'L'            # LOCATION
+        assert data[5] == '2'            # BATCH
+        assert data[6] == 'test'         # NOTES
+
+    def test_none_fields_show_placeholder(self):
+        """None trans_type and vehicle_sub_unit → '???'."""
+        row = self._make_row(trans_type=None, vehicle_sub_unit=None, qty=None)
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[2] == '???'  # qty
+        assert data[3] == '???'  # trans_type
+        assert data[4] == '???'  # vehicle_sub_unit
+
+    def test_date_formatted_as_iso(self):
+        """Date objects formatted as YYYY-MM-DD."""
+        row = self._make_row(date=date(2025, 1, 5))
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[0] == '2025-01-05'
+
+    def test_float_qty_whole_shows_int(self):
+        """4.0 → '4' (no trailing .0)."""
+        row = self._make_row(qty=4.0)
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[2] == '4'
+
+    def test_float_qty_fraction_preserved(self):
+        """4.5 → '4.5'."""
+        row = self._make_row(qty=4.5)
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[2] == '4.5'
+
+    def test_empty_notes_is_empty_string(self):
+        """None notes → empty string, not 'None'."""
+        row = self._make_row(notes=None)
+        tsv = format_rows_for_clipboard([row])
+        data = tsv.split('\n')[1].split('\t')
+        assert data[6] == ''
+
+    def test_empty_rows_returns_empty_string(self):
+        """No rows → empty string (nothing to copy)."""
+        assert format_rows_for_clipboard([]) == ''
+
+    def test_double_entry_pair_both_rows(self, config):
+        """Double-entry parse produces two TSV data rows."""
+        result = parse("4 cucumbers to L", config, today=TODAY)
+        tsv = format_rows_for_clipboard(result.rows)
+        lines = tsv.split('\n')
+        assert len(lines) == 3  # header + 2 rows
+        assert '-4' in lines[1]  # source (negative)
+        assert '4' in lines[2] and '-' not in lines[2].split('\t')[2]  # dest (positive)
+
+
+class TestCopyToClipboard:
+    """Tests for copy_to_clipboard (system clipboard integration)."""
+
+    def test_success_returns_true(self, monkeypatch):
+        """Successful clipboard copy returns True."""
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+        monkeypatch.setattr('subprocess.run', lambda cmd, input, check: None)
+        assert copy_to_clipboard("test data") is True
+
+    def test_no_tool_returns_false(self, monkeypatch):
+        """No clipboard tool available → returns False."""
+        monkeypatch.setattr('shutil.which', lambda cmd: None)
+        assert copy_to_clipboard("test data") is False
+
+    def test_text_passed_as_utf8_stdin(self, monkeypatch):
+        """Clipboard tool receives the text encoded as UTF-8 via stdin."""
+        captured = {}
+        def mock_run(cmd, input, check):
+            captured['input'] = input
+            captured['cmd'] = cmd
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        copy_to_clipboard("hello\tworld")
+        assert captured['input'] == b"hello\tworld"
+
+    def test_fallback_on_first_tool_failure(self, monkeypatch):
+        """If first tool fails, tries the next one."""
+        import subprocess
+        call_log = []
+        def mock_which(cmd):
+            if cmd in ('clip.exe', 'xclip'):
+                return f'/usr/bin/{cmd}'
+            return None
+        def mock_run(cmd, input, check):
+            call_log.append(cmd[0])
+            if cmd[0] == 'clip.exe':
+                raise subprocess.CalledProcessError(1, cmd)
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        assert copy_to_clipboard("test") is True
+        assert call_log == ['clip.exe', 'xclip']
+
+    def test_all_tools_fail_returns_false(self, monkeypatch):
+        """All available tools fail → returns False."""
+        import subprocess
+        def mock_which(cmd):
+            return f'/usr/bin/{cmd}'  # all "exist"
+        def mock_run(cmd, input, check):
+            raise subprocess.CalledProcessError(1, cmd)
+        monkeypatch.setattr('shutil.which', mock_which)
+        monkeypatch.setattr('subprocess.run', mock_run)
+
+        assert copy_to_clipboard("test") is False
+
+
+class TestClipboardIntegration:
+    """Integration tests: confirm → clipboard, not reprint."""
+
+    def test_confirm_copies_to_clipboard(self, config, monkeypatch, capsys):
+        """After confirm in main(), rows are copied to clipboard, table not reprinted."""
+        from inventory_tui import main
+
+        # Mock config loading to use our test config
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+
+        # Simulate: paste message → confirm → exit
+        monkeypatch.setattr('builtins.input', make_input([
+            "eaten by L",       # line 1 of message
+            "4 cucumbers",      # line 2
+            "",                 # empty line → end paste
+            "c",                # confirm
+            "",                 # next paste prompt: empty → triggers EOFError
+        ]))
+
+        clipboard_data = {}
+        def mock_copy(text):
+            clipboard_data['text'] = text
+            return True
+        monkeypatch.setattr('inventory_tui.copy_to_clipboard', mock_copy)
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        output = capsys.readouterr().out
+
+        # Clipboard received TSV data
+        assert 'text' in clipboard_data
+        assert 'cucumbers' in clipboard_data['text']
+        assert '\t' in clipboard_data['text']
+
+        # Confirmation message shown (not the table)
+        assert 'copied to clipboard' in output.lower()
+
+    def test_confirm_does_not_reprint_table(self, config, monkeypatch, capsys):
+        """After confirm, the table should NOT be reprinted."""
+        from inventory_tui import main
+
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+        monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: True)
+
+        monkeypatch.setattr('builtins.input', make_input([
+            "eaten by L",
+            "4 cucumbers",
+            "",
+            "c",
+            "",
+        ]))
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        output = capsys.readouterr().out
+
+        # Split output into before-confirm (review table) and after-confirm
+        # The review table appears during review_loop; after confirm,
+        # we should NOT see "Confirmed transactions" or a second table
+        assert 'Confirmed transactions' not in output
+
+    def test_clipboard_failure_falls_back_to_table(self, config, monkeypatch, capsys):
+        """If clipboard fails, fall back to printing the table."""
+        from inventory_tui import main
+
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+        monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: False)
+
+        monkeypatch.setattr('builtins.input', make_input([
+            "eaten by L",
+            "4 cucumbers",
+            "",
+            "c",
+            "",
+        ]))
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        output = capsys.readouterr().out
+
+        # Fallback: table IS printed when clipboard fails
+        assert 'clipboard' in output.lower()
+        assert 'cucumbers' in output
+
+    def test_notes_still_printed_after_clipboard(self, config, monkeypatch, capsys):
+        """Notes are still printed to console even when clipboard succeeds."""
+        from inventory_tui import main
+
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+        monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: True)
+
+        monkeypatch.setattr('builtins.input', make_input([
+            "4 cucumbers",
+            "Rimon to N via naor by phone",
+            "",
+            "c",
+            "",
+        ]))
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        output = capsys.readouterr().out
+        assert 'Rimon' in output
