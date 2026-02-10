@@ -580,6 +580,11 @@ def _item_to_rows(item, config, today):
         'date': dt, 'inv_type': inv_type, 'batch': batch, 'notes': notes,
     }
 
+    # Preserve unconverted container info for TUI learning prompt
+    if item.get('container'):
+        row_base['_container'] = item['container']
+        row_base['_raw_qty'] = qty
+
     # Non-zero-sum → single row
     non_zero_sum = set(config.get('non_zero_sum_types', _NON_ZERO_SUM_DEFAULT))
     if trans_type in non_zero_sum:

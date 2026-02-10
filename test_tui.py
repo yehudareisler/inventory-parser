@@ -16,6 +16,8 @@ from inventory_tui import (
     review_loop, display_result, eval_qty, parse_date,
     find_partner, update_partner, check_alias_opportunity,
     format_rows_for_clipboard, copy_to_clipboard,
+    check_conversion_opportunity, prompt_save_conversions,
+    add_alias_interactive, add_conversion_interactive,
 )
 
 
@@ -1368,3 +1370,236 @@ class TestClipboardIntegration:
 
         output = capsys.readouterr().out
         assert 'Rimon' in output
+
+
+# ============================================================
+# Unit conversion learning tests
+# ============================================================
+
+class TestConversionOpportunity:
+    """Tests for check_conversion_opportunity and prompt_save_conversions."""
+
+    def test_detects_unconverted_container(self, config):
+        """Rows with _container set trigger an opportunity."""
+        rows = [{'inv_type': 'cucumbers', 'qty': 2, '_container': 'box', '_raw_qty': 2}]
+        prompts = check_conversion_opportunity(rows, config)
+        assert len(prompts) == 1
+        assert prompts[0] == ('cucumbers', 'box')
+
+    def test_skips_known_conversion(self, config):
+        """No opportunity when the item already has this container conversion."""
+        rows = [{'inv_type': 'cherry tomatoes', 'qty': 2, '_container': 'box', '_raw_qty': 2}]
+        prompts = check_conversion_opportunity(rows, config)
+        assert prompts == []
+
+    def test_skips_rows_without_container(self, config):
+        """Normal rows (no _container) don't trigger."""
+        rows = [{'inv_type': 'cucumbers', 'qty': 4}]
+        prompts = check_conversion_opportunity(rows, config)
+        assert prompts == []
+
+    def test_deduplicates_same_item_container(self, config):
+        """Multiple rows with same item+container only prompt once."""
+        rows = [
+            {'inv_type': 'cucumbers', 'qty': -2, '_container': 'box', '_raw_qty': 2},
+            {'inv_type': 'cucumbers', 'qty': 2, '_container': 'box', '_raw_qty': 2},
+        ]
+        prompts = check_conversion_opportunity(rows, config)
+        assert len(prompts) == 1
+
+    def test_prompt_saves_factor(self, config, monkeypatch):
+        """User entering a number saves the conversion to config."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input(['920']))
+
+        prompt_save_conversions([('cucumbers', 'box')], config, ui)
+
+        assert config['unit_conversions']['cucumbers']['box'] == 920
+
+    def test_prompt_skip_on_empty(self, config, monkeypatch):
+        """Pressing Enter without a number skips (no crash)."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input(['']))
+
+        prompt_save_conversions([('cucumbers', 'box')], config, ui)
+
+        assert 'cucumbers' not in config.get('unit_conversions', {}) or \
+               'box' not in config['unit_conversions'].get('cucumbers', {})
+
+
+class TestParserContainerPreservation:
+    """Tests that the parser preserves _container for unconverted containers."""
+
+    def test_unconverted_container_preserved(self, config):
+        """When container is recognized but item has no conversion, _container is set."""
+        # 'box' is known (cherry tomatoes has it) but cucumbers don't
+        result = parse("2 boxes of cucumbers to L", config, today=TODAY)
+        rows_with_container = [r for r in result.rows if '_container' in r]
+        assert len(rows_with_container) > 0
+        assert rows_with_container[0]['_container'] == 'box'
+
+    def test_converted_container_not_preserved(self, config):
+        """When conversion succeeds, _container is NOT set."""
+        result = parse("2 boxes of cherry tomatoes to L", config, today=TODAY)
+        rows_with_container = [r for r in result.rows if '_container' in r]
+        assert len(rows_with_container) == 0
+
+
+class TestContainerDisplayHint:
+    """Tests that unconverted containers show [container?] hint in display."""
+
+    def test_display_shows_container_hint(self, config, capsys):
+        """Row with _container shows qty as '2 [box?]'."""
+        rows = [{
+            'date': TODAY, 'inv_type': 'cucumbers', 'qty': 2,
+            'trans_type': 'eaten', 'vehicle_sub_unit': 'L',
+            'batch': 1, 'notes': None, '_container': 'box',
+        }]
+        display_result(rows)
+        output = capsys.readouterr().out
+        assert '[box?]' in output
+
+    def test_display_no_hint_without_container(self, config, capsys):
+        """Normal rows don't show [?] hint."""
+        rows = [{
+            'date': TODAY, 'inv_type': 'cucumbers', 'qty': 4,
+            'trans_type': 'eaten', 'vehicle_sub_unit': 'L',
+            'batch': 1, 'notes': None,
+        }]
+        display_result(rows)
+        output = capsys.readouterr().out
+        assert '[' not in output or '[box?' not in output
+
+
+class TestConversionIntegration:
+    """Integration: confirm with unconverted container → prompt → saved."""
+
+    def test_confirm_prompts_for_conversion(self, config, monkeypatch, capsys):
+        """After confirm, user is prompted for unconverted container factor."""
+        result = parse("2 boxes of cucumbers to L", config, today=TODAY)
+
+        # Check if container was detected
+        has_container = any('_container' in r for r in result.rows)
+        if not has_container:
+            pytest.skip("Parser did not detect container for cucumbers")
+
+        responses = ['c', '500']  # confirm, then enter factor
+        monkeypatch.setattr('builtins.input', make_input(responses))
+
+        outcome = review_loop(result, "2 boxes of cucumbers to L", config)
+        assert outcome is not None
+
+        # Conversion should be saved to config
+        assert config.get('unit_conversions', {}).get('cucumbers', {}).get('box') == 500
+
+    def test_container_fields_stripped_from_output(self, config, monkeypatch):
+        """_container and _raw_qty are removed from confirmed rows."""
+        result = parse("2 boxes of cucumbers to L", config, today=TODAY)
+        has_container = any('_container' in r for r in result.rows)
+        if not has_container:
+            pytest.skip("Parser did not detect container for cucumbers")
+
+        monkeypatch.setattr('builtins.input', make_input(['c', '']))
+
+        outcome = review_loop(result, "2 boxes of cucumbers to L", config)
+        assert outcome is not None
+        for row in outcome['rows']:
+            assert '_container' not in row
+            assert '_raw_qty' not in row
+
+
+class TestDirectAddAlias:
+    """Tests for the direct 'alias' command."""
+
+    def test_add_alias_interactive(self, config, monkeypatch, capsys):
+        """Interactive alias add saves to config."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input(['cukes', 'cucumbers']))
+
+        result = add_alias_interactive(config, ui)
+
+        assert result is True
+        assert config['aliases']['cukes'] == 'cucumbers'
+
+    def test_add_alias_empty_cancels(self, config, monkeypatch):
+        """Empty alias name cancels."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input(['']))
+
+        result = add_alias_interactive(config, ui)
+        assert result is False
+
+    def test_alias_command_in_main(self, config, monkeypatch, capsys):
+        """Typing 'alias' at paste prompt triggers interactive add."""
+        from inventory_tui import main
+
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+
+        monkeypatch.setattr('builtins.input', make_input([
+            'alias',        # direct command (first line of paste)
+            '',             # empty line → ends paste, returns "alias"
+            'cukes',        # alias_short_prompt input
+            'cucumbers',    # alias_maps_to_prompt input
+            '',             # next paste prompt: empty → triggers EOFError
+        ]))
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        assert config['aliases']['cukes'] == 'cucumbers'
+
+
+class TestDirectAddConversion:
+    """Tests for the direct 'convert' command."""
+
+    def test_add_conversion_interactive(self, config, monkeypatch, capsys):
+        """Interactive conversion add saves to config."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input([
+            'cucumbers', 'crate', '500',
+        ]))
+
+        result = add_conversion_interactive(config, ui)
+
+        assert result is True
+        assert config['unit_conversions']['cucumbers']['crate'] == 500
+
+    def test_add_conversion_empty_cancels(self, config, monkeypatch):
+        """Empty item name cancels."""
+        from inventory_tui import UIStrings
+        ui = UIStrings(config)
+        monkeypatch.setattr('builtins.input', make_input(['']))
+
+        result = add_conversion_interactive(config, ui)
+        assert result is False
+
+    def test_convert_command_in_main(self, config, monkeypatch, capsys):
+        """Typing 'convert' at paste prompt triggers interactive add."""
+        from inventory_tui import main
+
+        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
+
+        monkeypatch.setattr('builtins.input', make_input([
+            'convert',      # direct command (first line of paste)
+            '',             # empty line → ends paste, returns "convert"
+            'cucumbers',    # convert_item_prompt input
+            'crate',        # convert_container_prompt input
+            '500',          # convert_factor_prompt input
+            '',             # next paste prompt: empty → triggers EOFError
+        ]))
+
+        try:
+            main('dummy.yaml')
+        except (EOFError, SystemExit):
+            pass
+
+        assert config['unit_conversions']['cucumbers']['crate'] == 500

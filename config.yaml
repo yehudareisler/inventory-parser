@@ -152,6 +152,16 @@ ui:
     help_skip_desc: Skip (discard this input)
     help_items_header: "Known items:"
     help_aliases_header: "Aliases:"
+    save_conversion_prompt: "Save unit conversion? 1 {container} of {item} = ? "
+    conversion_saved: "  Saved: 1 {container} of {item} = {factor}"
+    cmd_alias: alias
+    cmd_convert: convert
+    alias_short_prompt: "Alias (short name): "
+    alias_maps_to_prompt: "Maps to item: "
+    alias_saved: "  Saved: {alias} \u2192 {item}"
+    convert_item_prompt: "Item name: "
+    convert_container_prompt: "Container name: "
+    convert_factor_prompt: "How many units in 1 {container}: "
 
 unit_conversions:
   cherry tomatoes:

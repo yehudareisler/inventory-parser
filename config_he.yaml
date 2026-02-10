@@ -191,6 +191,16 @@ ui:
     help_skip_desc: דילוג (מחיקת קלט זה)
     help_items_header: 'פריטים מוכרים:'
     help_aliases_header: 'כינויים:'
+    save_conversion_prompt: 'שמור המרת יחידות? 1 {container} של {item} = ? '
+    conversion_saved: '  נשמר: 1 {container} של {item} = {factor}'
+    cmd_alias: כינוי
+    cmd_convert: המרה
+    alias_short_prompt: 'כינוי (שם קצר): '
+    alias_maps_to_prompt: 'שם הפריט: '
+    alias_saved: '  נשמר: {alias} → {item}'
+    convert_item_prompt: 'שם הפריט: '
+    convert_container_prompt: 'שם המכולה: '
+    convert_factor_prompt: 'כמה יחידות ב-1 {container}: '
 unit_conversions:
   עגבניות שרי:
     base_unit: יחידה

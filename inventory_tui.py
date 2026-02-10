@@ -107,6 +107,17 @@ _EN_DEFAULTS = {
         'help_skip_desc': 'Skip (discard this input)',
         'help_items_header': 'Known items:',
         'help_aliases_header': 'Aliases:',
+        # Unit conversion & direct commands
+        'save_conversion_prompt': 'Save unit conversion? 1 {container} of {item} = ? ',
+        'conversion_saved': '  Saved: 1 {container} of {item} = {factor}',
+        'cmd_alias': 'alias',
+        'cmd_convert': 'convert',
+        'alias_short_prompt': 'Alias (short name): ',
+        'alias_maps_to_prompt': 'Maps to item: ',
+        'alias_saved': '  Saved: {alias} \u2192 {item}',
+        'convert_item_prompt': 'Item name: ',
+        'convert_container_prompt': 'Container name: ',
+        'convert_factor_prompt': 'How many units in 1 {container}: ',
     },
 }
 
@@ -293,11 +304,14 @@ def row_has_warning(row):
 
 def _row_to_cells(i, row):
     warn = '\u26a0 ' if row_has_warning(row) else ''
+    qty_str = format_qty(row.get('qty'))
+    if row.get('_container'):
+        qty_str = f"{qty_str} [{row['_container']}?]"
     return [
         f'{warn}{i + 1}',
         format_date(row.get('date')),
         row.get('inv_type', '???'),
-        format_qty(row.get('qty')),
+        qty_str,
         row.get('trans_type') or '???',
         row.get('vehicle_sub_unit') or '???',
         str(row.get('batch', '')),
@@ -647,6 +661,119 @@ def prompt_save_aliases(prompts, config, ui):
 
 
 # ============================================================
+# Unit conversion learning
+# ============================================================
+
+def check_conversion_opportunity(rows, config):
+    """Check if any rows have unconverted containers that could be saved."""
+    convs = config.get('unit_conversions', {})
+    seen = set()
+    prompts = []
+
+    for row in rows:
+        container = row.get('_container')
+        item = row.get('inv_type', '???')
+        if not container or item == '???':
+            continue
+
+        key = (item, container)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # Skip if conversion already exists
+        if convs.get(item, {}).get(container) is not None:
+            continue
+
+        prompts.append((item, container))
+
+    return prompts
+
+
+def prompt_save_conversions(prompts, config, ui):
+    """Ask user to define conversion factors for unconverted containers."""
+    saved = False
+    for item, container in prompts:
+        print(ui.s('save_conversion_prompt',
+                   item=item, container=container), end='')
+        resp = input().strip()
+        if not resp:
+            continue
+        try:
+            factor = float(resp)
+            if factor == int(factor):
+                factor = int(factor)
+        except ValueError:
+            continue
+        if 'unit_conversions' not in config:
+            config['unit_conversions'] = {}
+        if item not in config['unit_conversions']:
+            config['unit_conversions'][item] = {}
+        config['unit_conversions'][item][container] = factor
+        print(ui.s('conversion_saved', item=item, container=container, factor=factor))
+        saved = True
+    return saved
+
+
+# ============================================================
+# Direct add commands
+# ============================================================
+
+def add_alias_interactive(config, ui):
+    """Interactively add an alias. Shows known items as hints."""
+    items = config.get('items', [])
+    if items:
+        items_hint = ', '.join(items)
+        print(f'  {ui.s("help_items_header")} {items_hint}')
+    print(ui.s('alias_short_prompt'), end='')
+    alias = input().strip()
+    if not alias:
+        return False
+    print(ui.s('alias_maps_to_prompt'), end='')
+    item = input().strip()
+    if not item:
+        return False
+    if 'aliases' not in config:
+        config['aliases'] = {}
+    config['aliases'][alias] = item
+    print(ui.s('alias_saved', alias=alias, item=item))
+    return True
+
+
+def add_conversion_interactive(config, ui):
+    """Interactively add a unit conversion."""
+    items = config.get('items', [])
+    if items:
+        items_hint = ', '.join(items)
+        print(f'  {ui.s("help_items_header")} {items_hint}')
+    print(ui.s('convert_item_prompt'), end='')
+    item = input().strip()
+    if not item:
+        return False
+    print(ui.s('convert_container_prompt'), end='')
+    container = input().strip()
+    if not container:
+        return False
+    print(ui.s('convert_factor_prompt', container=container), end='')
+    resp = input().strip()
+    if not resp:
+        return False
+    try:
+        factor = float(resp)
+        if factor == int(factor):
+            factor = int(factor)
+    except ValueError:
+        return False
+    if 'unit_conversions' not in config:
+        config['unit_conversions'] = {}
+    if item not in config['unit_conversions']:
+        config['unit_conversions'][item] = {}
+    config['unit_conversions'][item][container] = factor
+    print(ui.s('conversion_saved', item=item, container=container, factor=factor))
+    return True
+
+
+# ============================================================
 # Review loop
 # ============================================================
 
@@ -732,6 +859,16 @@ def review_loop(result, raw_text, config):
                 prompts = check_alias_opportunity(rows, original_tokens, config)
                 if prompts:
                     prompt_save_aliases(prompts, config, ui)
+
+            conv_prompts = check_conversion_opportunity(rows, config)
+            if conv_prompts:
+                prompt_save_conversions(conv_prompts, config, ui)
+
+            # Strip metadata fields before returning
+            for row in rows:
+                row.pop('_container', None)
+                row.pop('_raw_qty', None)
+
             return {'rows': rows, 'notes': notes}
 
         if cmd == cmd_quit:
@@ -884,6 +1021,18 @@ def main(config_path='config_he.yaml'):
         if raw_text is None:
             print(ui.s('goodbye'))
             break
+
+        # Direct commands
+        cmd = raw_text.strip().lower()
+        if cmd == ui.s('cmd_alias').lower():
+            add_alias_interactive(config, ui)
+            save_config(config, config_path)
+            ui = UIStrings(config)
+            continue
+        if cmd == ui.s('cmd_convert').lower():
+            add_conversion_interactive(config, ui)
+            save_config(config, config_path)
+            continue
 
         result = parse(raw_text, config)
 
