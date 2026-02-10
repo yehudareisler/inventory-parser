@@ -17,6 +17,7 @@ from inventory_tui import main as tui_main
 _output_buf = []
 _output_lock = threading.Lock()
 _input_queue = queue.Queue()
+_clipboard_queue = queue.Queue()
 
 
 class _WebOut:
@@ -104,6 +105,10 @@ async function poll() {
             }
             term.scrollTop = term.scrollHeight;
         }
+        if (d.clip) {
+            try { await navigator.clipboard.writeText(d.clip); }
+            catch(e) { console.warn('clipboard write failed', e); }
+        }
     } catch(e) {}
     setTimeout(poll, 80);
 }
@@ -155,7 +160,15 @@ class _H(http.server.BaseHTTPRequestHandler):
             with _output_lock:
                 t = ''.join(_output_buf)
                 _output_buf.clear()
-            self._ok('application/json', json.dumps({'t': t}).encode())
+            clip = None
+            try:
+                clip = _clipboard_queue.get_nowait()
+            except queue.Empty:
+                pass
+            payload = {'t': t}
+            if clip is not None:
+                payload['clip'] = clip
+            self._ok('application/json', json.dumps(payload, ensure_ascii=False).encode())
         else:
             self.send_error(404)
 
@@ -186,6 +199,13 @@ def main():
     real_out = sys.__stdout__
     sys.stdout = _WebOut()
     sys.stdin = _WebIn()
+
+    # Route clipboard through the browser instead of system tools
+    import inventory_tui
+    def _web_clipboard(text):
+        _clipboard_queue.put(text)
+        return True
+    inventory_tui._clipboard_fn = _web_clipboard
 
     threading.Thread(target=tui_main, args=(config,), daemon=True).start()
 

@@ -392,8 +392,15 @@ def format_rows_for_clipboard(rows):
     return '\n'.join(lines)
 
 
+# Pluggable clipboard — web interface overrides this
+_clipboard_fn = None
+
+
 def copy_to_clipboard(text):
     """Copy text to system clipboard. Returns True on success, False otherwise."""
+    if _clipboard_fn is not None:
+        return _clipboard_fn(text)
+
     import subprocess
     import shutil
 
