@@ -516,8 +516,10 @@ def _generate_result(items, config, today):
         elif item['has_qty'] and not item['has_item']:
             result.unparseable.append(item['raw'])
         elif (item['trans_type'] and (item['location'] or item['date'])) \
-                or (item['location'] and item['date']):
-            # Context-setting line (verb+destination, or destination+date)
+                or (item['location'] and item['date']) \
+                or (item['location'] and not item.get('_unmatched_text')):
+            # Context-setting line (verb+destination, destination+date,
+            # or standalone destination like לכ)
             pass
         else:
             if _is_note(item):
@@ -597,6 +599,15 @@ def _item_to_rows(item, config, today):
     if location and location != default_source:
         if not trans_type:
             trans_type = config.get('default_transfer_type', 'warehouse_to_branch')
+        direction = item.get('direction', 'to')
+        if direction == 'from':
+            # "from כ" → stock leaves כ, arrives at warehouse
+            return [
+                {**row_base, 'qty': -abs(qty), 'trans_type': trans_type,
+                 'vehicle_sub_unit': location},
+                {**row_base, 'qty': abs(qty), 'trans_type': trans_type,
+                 'vehicle_sub_unit': default_source},
+            ]
         return [
             {**row_base, 'qty': -abs(qty), 'trans_type': trans_type,
              'vehicle_sub_unit': default_source},

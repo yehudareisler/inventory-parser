@@ -60,6 +60,8 @@ prepositions:
   - ל
   by:
   - ב
+  from:
+  - מ
 from_words:
 - מאת
 filler_words: []

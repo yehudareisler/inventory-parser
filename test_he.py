@@ -131,6 +131,7 @@ def config():
         'prepositions': {
             'to': ['ל'],
             'by': ['ב'],
+            'from': ['מ'],
         },
         'from_words': ['מאת'],
         'filler_words': [],
@@ -822,3 +823,242 @@ class TestEdgeCasesHe:
         output = capsys.readouterr().out
         assert 'אזהרה' in output
         assert len(outcome['rows']) == 2
+
+
+# ============================================================
+# Hebrew preposition + location edge cases
+# ============================================================
+
+class TestHebrewPrepositionLocation:
+    """Tests for Hebrew prefixed prepositions ל (to) and מ (from)
+    attached directly to location codes."""
+
+    def test_standalone_location_header(self, config):
+        """לכ on its own line broadcasts location to subsequent items."""
+        result = parse(
+            "לכ\n"
+            "12 עגבניה\n"
+            "6 מלפפון",
+            config,
+            today=TODAY,
+        )
+
+        # No notes or unparseable — לכ is a context-setting line
+        assert result.notes == []
+        assert result.unparseable == []
+
+        # 2 items × double-entry = 4 rows
+        assert len(result.rows) == 4
+
+        # Item 1: עגבניה → עגבניות שרי (alias), qty=12, to כ
+        assert result.rows[0]['inv_type'] == 'עגבניות שרי'
+        assert result.rows[0]['qty'] == -12
+        assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 12
+        assert result.rows[1]['vehicle_sub_unit'] == 'כ'
+
+        # Item 2: מלפפון → מלפפונים (fuzzy), qty=6, to כ
+        assert result.rows[2]['inv_type'] == 'מלפפונים'
+        assert result.rows[2]['qty'] == -6
+        assert result.rows[3]['qty'] == 6
+        assert result.rows[3]['vehicle_sub_unit'] == 'כ'
+
+    def test_standalone_location_lamed(self, config):
+        """לל — standalone location ל (both preposition and location name)."""
+        result = parse(
+            "לל\n"
+            "4 מלפפונים",
+            config,
+            today=TODAY,
+        )
+
+        assert result.notes == []
+        assert result.unparseable == []
+        assert len(result.rows) == 2
+        assert result.rows[1]['vehicle_sub_unit'] == 'ל'
+
+    def test_from_prefix_basic(self, config):
+        """מכ — from כ, double-entry reversed (stock leaves כ, arrives at מחסן)."""
+        result = parse("12 מלפפונים מכ", config, today=TODAY)
+
+        assert len(result.rows) == 2
+        # "from כ" → negative at כ, positive at מחסן
+        assert result.rows[0]['qty'] == -12
+        assert result.rows[0]['vehicle_sub_unit'] == 'כ'
+        assert result.rows[1]['qty'] == 12
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+
+    def test_from_prefix_to_lamed(self, config):
+        """מל — from ל (preposition מ + location ל)."""
+        result = parse("6 ספגטי מל", config, today=TODAY)
+
+        assert len(result.rows) == 2
+        # "from ל" → negative at ל, positive at מחסן
+        assert result.rows[0]['qty'] == -6
+        assert result.rows[0]['vehicle_sub_unit'] == 'ל'
+        assert result.rows[1]['qty'] == 6
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+
+    def test_from_prefix_with_hyphen(self, config):
+        """מ-כ — from כ with hyphen separator."""
+        result = parse("8 ספגטי מ-כ", config, today=TODAY)
+
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'כ'
+        assert result.rows[0]['qty'] == -8
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 8
+
+    def test_from_header_broadcasts(self, config):
+        """מכ on its own line broadcasts 'from כ' to subsequent items."""
+        result = parse(
+            "מכ\n"
+            "10 מלפפונים\n"
+            "5 ספגטי",
+            config,
+            today=TODAY,
+        )
+
+        assert result.notes == []
+        assert result.unparseable == []
+        assert len(result.rows) == 4
+
+        # Both items should have "from כ" direction
+        assert result.rows[0]['vehicle_sub_unit'] == 'כ'
+        assert result.rows[0]['qty'] == -10
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 10
+
+        assert result.rows[2]['vehicle_sub_unit'] == 'כ'
+        assert result.rows[2]['qty'] == -5
+        assert result.rows[3]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[3]['qty'] == 5
+
+    def test_to_and_from_same_message(self, config):
+        """Mixed to/from in same message: different directions."""
+        result = parse(
+            "12 מלפפונים לכ\n"
+            "6 ספגטי מנ",
+            config,
+            today=TODAY,
+        )
+
+        assert len(result.rows) == 4
+
+        # "to כ": -qty at מחסן, +qty at כ
+        assert result.rows[0]['qty'] == -12
+        assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 12
+        assert result.rows[1]['vehicle_sub_unit'] == 'כ'
+
+        # "from נ": -qty at נ, +qty at מחסן
+        assert result.rows[2]['qty'] == -6
+        assert result.rows[2]['vehicle_sub_unit'] == 'נ'
+        assert result.rows[3]['qty'] == 6
+        assert result.rows[3]['vehicle_sub_unit'] == 'מחסן'
+
+    def test_mem_preposition_doesnt_match_item_names(self, config):
+        """מלפפונים should NOT be parsed as מ + ל (from ל) + leftover.
+
+        The regex requires word boundary after the location, so
+        מלפפונים (where ל is followed by פפונים, not whitespace) is safe.
+        """
+        result = parse("12 מלפפונים", config, today=TODAY)
+
+        # No location extracted — just a plain item
+        assert len(result.rows) == 1
+        assert result.rows[0]['inv_type'] == 'מלפפונים'
+        assert result.rows[0]['qty'] == 12
+        assert result.rows[0]['vehicle_sub_unit'] is None
+
+    def test_mem_as_location(self):
+        """Edge case: מ is both a preposition (from) and a location name.
+
+        With locations [ל, כ, נ, מ]:
+        - למ = to מ
+        - ממ = from מ
+        - מל = from ל (not ambiguous: מ is preposition, ל is location)
+        """
+        config_with_mem = {
+            'items': ['מלפפונים', 'ספגטי'],
+            'aliases': {},
+            'locations': ['ל', 'כ', 'נ', 'מ'],
+            'default_source': 'מחסן',
+            'transaction_types': ['מחסן_לסניף'],
+            'action_verbs': {},
+            'unit_conversions': {},
+            'prepositions': {
+                'to': ['ל'],
+                'by': ['ב'],
+                'from': ['מ'],
+            },
+            'from_words': ['מאת'],
+            'filler_words': [],
+            'non_zero_sum_types': [],
+            'default_transfer_type': 'מחסן_לסניף',
+        }
+
+        # למ = "to מ"
+        result = parse("12 ספגטי למ", config_with_mem, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[0]['qty'] == -12
+        assert result.rows[1]['vehicle_sub_unit'] == 'מ'
+        assert result.rows[1]['qty'] == 12
+
+        # ממ = "from מ"
+        result = parse("6 ספגטי ממ", config_with_mem, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'מ'
+        assert result.rows[0]['qty'] == -6
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 6
+
+        # מל = "from ל" (not: location מ + stray ל)
+        result = parse("8 ספגטי מל", config_with_mem, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'ל'
+        assert result.rows[0]['qty'] == -8
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 8
+
+    def test_lamed_as_location_and_preposition(self):
+        """Edge case: ל is both a preposition (to) and a location name.
+
+        - לל = "to ל"
+        - מל = "from ל" (when מ is configured as from preposition)
+        - Neither confused with item names.
+        """
+        config_lamed = {
+            'items': ['מלפפונים'],
+            'aliases': {},
+            'locations': ['ל', 'כ'],
+            'default_source': 'מחסן',
+            'transaction_types': ['מחסן_לסניף'],
+            'action_verbs': {},
+            'unit_conversions': {},
+            'prepositions': {
+                'to': ['ל'],
+                'from': ['מ'],
+            },
+            'from_words': ['מאת'],
+            'filler_words': [],
+            'non_zero_sum_types': [],
+            'default_transfer_type': 'מחסן_לסניף',
+        }
+
+        # לל = "to ל"
+        result = parse("4 מלפפונים לל", config_lamed, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[0]['qty'] == -4
+        assert result.rows[1]['vehicle_sub_unit'] == 'ל'
+        assert result.rows[1]['qty'] == 4
+
+        # מל = "from ל"
+        result = parse("4 מלפפונים מל", config_lamed, today=TODAY)
+        assert len(result.rows) == 2
+        assert result.rows[0]['vehicle_sub_unit'] == 'ל'
+        assert result.rows[0]['qty'] == -4
+        assert result.rows[1]['vehicle_sub_unit'] == 'מחסן'
+        assert result.rows[1]['qty'] == 4
