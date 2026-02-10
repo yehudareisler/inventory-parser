@@ -370,15 +370,13 @@ def display_result(rows, notes=None, unparseable=None, ui=None):
 def format_rows_for_clipboard(rows):
     """Format confirmed rows as TSV for pasting into Excel/Google Sheets.
 
-    Returns a tab-separated string: header line + one line per row.
+    Returns a tab-separated string with one line per row (no header).
     Empty rows list returns empty string.
     """
     if not rows:
         return ''
 
-    headers = ['DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES']
-    lines = ['\t'.join(headers)]
-
+    lines = []
     for row in rows:
         cells = [
             format_date(row.get('date')),
@@ -386,8 +384,8 @@ def format_rows_for_clipboard(rows):
             format_qty(row.get('qty')),
             row.get('trans_type') or '???',
             row.get('vehicle_sub_unit') or '???',
-            str(row.get('batch', '')),
             row.get('notes') or '',
+            str(row.get('batch', '')),
         ]
         lines.append('\t'.join(cells))
 
@@ -399,21 +397,26 @@ def copy_to_clipboard(text):
     import subprocess
     import shutil
 
+    # WSL: clip.exe can't handle Unicode; use PowerShell Set-Clipboard
+    if shutil.which('powershell.exe'):
+        try:
+            subprocess.run(
+                ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+                 '$input | Set-Clipboard'],
+                input=text.encode('utf-8'), check=True,
+            )
+            return True
+        except (subprocess.CalledProcessError, OSError):
+            pass
+
     commands = [
-        ['clip.exe'],                          # WSL2
         ['xclip', '-selection', 'clipboard'],  # Linux
         ['pbcopy'],                            # macOS
     ]
-
     for cmd in commands:
         if shutil.which(cmd[0]):
             try:
-                if cmd[0] == 'clip.exe':
-                    # clip.exe needs UTF-16LE with BOM for non-ASCII text
-                    encoded = b'\xff\xfe' + text.encode('utf-16-le')
-                else:
-                    encoded = text.encode('utf-8')
-                subprocess.run(cmd, input=encoded, check=True)
+                subprocess.run(cmd, input=text.encode('utf-8'), check=True)
                 return True
             except (subprocess.CalledProcessError, OSError):
                 continue

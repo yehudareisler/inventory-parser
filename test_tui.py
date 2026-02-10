@@ -1097,57 +1097,47 @@ class TestFormatRowsForClipboard:
         row.update(overrides)
         return row
 
-    def test_single_row_produces_header_and_data(self):
-        """One row → two lines: header + data."""
+    def test_single_row_one_line(self):
+        """One row → one line (no header)."""
         tsv = format_rows_for_clipboard([self._make_row()])
         lines = tsv.split('\n')
-        assert len(lines) == 2
-        assert lines[0].startswith('DATE')
+        assert len(lines) == 1
 
     def test_multiple_rows(self):
-        """N rows → N+1 lines (header + N data)."""
+        """N rows → N lines (no header)."""
         rows = [self._make_row(inv_type='cucumbers'),
                 self._make_row(inv_type='spaghetti')]
         tsv = format_rows_for_clipboard(rows)
         lines = tsv.split('\n')
-        assert len(lines) == 3
+        assert len(lines) == 2
 
     def test_tab_separated(self):
         """Columns are separated by tabs, not spaces or pipes."""
         tsv = format_rows_for_clipboard([self._make_row()])
-        header, data = tsv.split('\n')
-        assert '\t' in header
-        assert '\t' in data
-        assert ' | ' not in data
+        assert '\t' in tsv
+        assert ' | ' not in tsv
 
     def test_columns_in_correct_order(self):
-        """Header order: DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES."""
-        tsv = format_rows_for_clipboard([self._make_row()])
-        header = tsv.split('\n')[0]
-        cols = header.split('\t')
-        assert cols == ['DATE', 'ITEM', 'QTY', 'TYPE', 'LOCATION', 'BATCH', 'NOTES']
-
-    def test_data_columns_match_header(self):
-        """Data values appear in the correct column positions."""
+        """Column order: DATE, ITEM, QTY, TYPE, LOCATION, NOTES, BATCH."""
         row = self._make_row(
             date=date(2025, 6, 15), inv_type='spaghetti', qty=34,
             trans_type='eaten', vehicle_sub_unit='L', batch=2, notes='test',
         )
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
+        data = tsv.split('\t')
         assert data[0] == '2025-06-15'   # DATE
         assert data[1] == 'spaghetti'    # ITEM
         assert data[2] == '34'           # QTY
         assert data[3] == 'eaten'        # TYPE
         assert data[4] == 'L'            # LOCATION
-        assert data[5] == '2'            # BATCH
-        assert data[6] == 'test'         # NOTES
+        assert data[5] == 'test'         # NOTES
+        assert data[6] == '2'            # BATCH
 
     def test_none_fields_show_placeholder(self):
         """None trans_type and vehicle_sub_unit → '???'."""
         row = self._make_row(trans_type=None, vehicle_sub_unit=None, qty=None)
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
+        data = tsv.split('\t')
         assert data[2] == '???'  # qty
         assert data[3] == '???'  # trans_type
         assert data[4] == '???'  # vehicle_sub_unit
@@ -1156,29 +1146,29 @@ class TestFormatRowsForClipboard:
         """Date objects formatted as YYYY-MM-DD."""
         row = self._make_row(date=date(2025, 1, 5))
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
+        data = tsv.split('\t')
         assert data[0] == '2025-01-05'
 
     def test_float_qty_whole_shows_int(self):
         """4.0 → '4' (no trailing .0)."""
         row = self._make_row(qty=4.0)
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
+        data = tsv.split('\t')
         assert data[2] == '4'
 
     def test_float_qty_fraction_preserved(self):
         """4.5 → '4.5'."""
         row = self._make_row(qty=4.5)
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
+        data = tsv.split('\t')
         assert data[2] == '4.5'
 
     def test_empty_notes_is_empty_string(self):
         """None notes → empty string, not 'None'."""
         row = self._make_row(notes=None)
         tsv = format_rows_for_clipboard([row])
-        data = tsv.split('\n')[1].split('\t')
-        assert data[6] == ''
+        data = tsv.split('\t')
+        assert data[5] == ''  # NOTES is now column 5
 
     def test_empty_rows_returns_empty_string(self):
         """No rows → empty string (nothing to copy)."""
@@ -1189,9 +1179,9 @@ class TestFormatRowsForClipboard:
         result = parse("4 cucumbers to L", config, today=TODAY)
         tsv = format_rows_for_clipboard(result.rows)
         lines = tsv.split('\n')
-        assert len(lines) == 3  # header + 2 rows
-        assert '-4' in lines[1]  # source (negative)
-        assert '4' in lines[2] and '-' not in lines[2].split('\t')[2]  # dest (positive)
+        assert len(lines) == 2  # 2 rows, no header
+        assert '-4' in lines[0]  # source (negative)
+        assert '4' in lines[1] and '-' not in lines[1].split('\t')[2]  # dest (positive)
 
 
 class TestCopyToClipboard:
@@ -1199,7 +1189,7 @@ class TestCopyToClipboard:
 
     def test_success_returns_true(self, monkeypatch):
         """Successful clipboard copy returns True."""
-        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/powershell.exe' if cmd == 'powershell.exe' else None)
         monkeypatch.setattr('subprocess.run', lambda cmd, input, check: None)
         assert copy_to_clipboard("test data") is True
 
@@ -1221,35 +1211,36 @@ class TestCopyToClipboard:
         copy_to_clipboard("hello\tworld")
         assert captured['input'] == b"hello\tworld"
 
-    def test_clip_exe_sends_utf16le_with_bom(self, monkeypatch):
-        """clip.exe receives UTF-16LE with BOM for proper Windows Unicode support."""
+    def test_wsl_uses_powershell_set_clipboard(self, monkeypatch):
+        """On WSL, uses powershell.exe Set-Clipboard with UTF-8 input."""
         captured = {}
         def mock_run(cmd, input, check):
             captured['input'] = input
-        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/clip.exe' if cmd == 'clip.exe' else None)
+            captured['cmd'] = cmd
+        monkeypatch.setattr('shutil.which', lambda cmd: '/usr/bin/powershell.exe' if cmd == 'powershell.exe' else None)
         monkeypatch.setattr('subprocess.run', mock_run)
 
         copy_to_clipboard("מחסן")
-        expected = b'\xff\xfe' + "מחסן".encode('utf-16-le')
-        assert captured['input'] == expected
+        assert captured['input'] == "מחסן".encode('utf-8')
+        assert 'powershell.exe' in captured['cmd'][0]
 
-    def test_fallback_on_first_tool_failure(self, monkeypatch):
-        """If first tool fails, tries the next one."""
+    def test_fallback_on_powershell_failure(self, monkeypatch):
+        """If PowerShell fails, falls back to xclip."""
         import subprocess
         call_log = []
         def mock_which(cmd):
-            if cmd in ('clip.exe', 'xclip'):
+            if cmd in ('powershell.exe', 'xclip'):
                 return f'/usr/bin/{cmd}'
             return None
         def mock_run(cmd, input, check):
             call_log.append(cmd[0])
-            if cmd[0] == 'clip.exe':
+            if cmd[0] == 'powershell.exe':
                 raise subprocess.CalledProcessError(1, cmd)
         monkeypatch.setattr('shutil.which', mock_which)
         monkeypatch.setattr('subprocess.run', mock_run)
 
         assert copy_to_clipboard("test") is True
-        assert call_log == ['clip.exe', 'xclip']
+        assert call_log == ['powershell.exe', 'xclip']
 
     def test_all_tools_fail_returns_false(self, monkeypatch):
         """All available tools fail → returns False."""
