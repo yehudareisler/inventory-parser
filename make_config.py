@@ -132,12 +132,24 @@ def main():
     print("-" * 40)
     print("  ALIASES — shortcuts for item names")
     print("-" * 40)
-    show_current("aliases", base.get('aliases'))
-    aliases = read_pairs("Enter aliases:",
-                         current=base.get('aliases'),
-                         separator=":",
-                         example="cherry tom: cherry tomatoes")
-    config['aliases'] = aliases if aliases else base.get('aliases', {})
+    base_aliases = base.get('aliases', {})
+    if base_aliases:
+        show_current("aliases", base_aliases)
+        choice = input("\n  Keep current aliases? [Y/n/clear] ").strip().lower()
+        if choice == 'clear':
+            config['aliases'] = {}
+        elif choice == 'n':
+            aliases = read_pairs("Enter aliases:",
+                                 separator=":",
+                                 example="cherry tom: cherry tomatoes")
+            config['aliases'] = aliases if aliases else {}
+        else:
+            config['aliases'] = base_aliases
+    else:
+        aliases = read_pairs("Enter aliases:",
+                             separator=":",
+                             example="cherry tom: cherry tomatoes")
+        config['aliases'] = aliases if aliases else {}
 
     # 3. Locations
     print("-" * 40)
@@ -194,8 +206,12 @@ def main():
     base_conv = base.get('unit_conversions', {})
     if base_conv:
         show_current("unit conversions", {k: dict(v) for k, v in base_conv.items()})
-    answer = input("\n  Configure unit conversions? [y/N] ").strip().lower()
-    if answer == 'y':
+        answer = input("\n  Configure unit conversions? [y/N/clear] ").strip().lower()
+    else:
+        answer = input("\n  Configure unit conversions? [y/N] ").strip().lower()
+    if answer == 'clear':
+        config['unit_conversions'] = {}
+    elif answer == 'y':
         config['unit_conversions'] = {}
         for item in config.get('items', []):
             existing = base_conv.get(item, {})
