@@ -82,8 +82,8 @@ ui:
     delete_prefix: ח
     add_row: +
     help: '?'
-    true: כ
-    false: ל
+    yes: כ
+    no: ל
   field_codes:
     ת: date
     פ: inv_type
@@ -205,6 +205,9 @@ ui:
     convert_factor_prompt: 'כמה יחידות ב-1 {container}: '
     fuzzy_confirm: '  → {resolved}? [{yes}/{no}] '
     help_locations_header: 'מיקומים מוכרים:'
+    review_parse_btn: 'נתח'
+    review_confirm_btn: 'אשר'
+    review_add_row_btn: '+ שורה'
 unit_conversions:
   עגבניות שרי:
     base_unit: יחידה

@@ -142,6 +142,7 @@ def _parse_line(text, config):
             r['notes_extra'] = f'from {supplier}'
 
     # Extract quantity + container
+    remaining_before_qty = remaining
     qty, container, remaining = _extract_qty(remaining, config)
     if qty is not None:
         r['qty'], r['has_qty'] = qty, True
@@ -156,6 +157,27 @@ def _parse_line(text, config):
             r['item'], r['item_raw'], r['has_item'] = item, raw, True
         else:
             r['_unmatched_text'] = remaining.strip()
+
+    # Multi-number disambiguation: if item wasn't found, try other numbers as qty
+    if not r['has_item'] and r['has_qty']:
+        all_numbers = re.findall(r'\b(\d+)\b', remaining_before_qty)
+        if len(all_numbers) > 1:
+            for num_str in all_numbers:
+                if int(num_str) == r['qty']:
+                    continue
+                trial_qty = int(num_str)
+                trial_text = remaining_before_qty.replace(num_str, '', 1).strip()
+                trial_text = _remove_filler(trial_text, config)
+                trial_cont, trial_after = _extract_container(trial_text, config)
+                trial_item, trial_raw = _match_item(
+                    trial_after if trial_cont else trial_text, config)
+                if trial_item:
+                    r['qty'], r['has_qty'] = trial_qty, True
+                    r['item'], r['item_raw'], r['has_item'] = trial_item, trial_raw, True
+                    r.pop('_unmatched_text', None)
+                    if trial_cont:
+                        r['container'] = trial_cont
+                    break
 
     # Apply container conversion if we have item + container + qty
     if r['item'] and r['container'] and r['qty'] is not None:
@@ -258,6 +280,32 @@ def _extract_verb(text, config):
             if m:
                 remaining = (text[:m.start()] + text[m.end():]).strip()
                 return trans_type, remaining
+
+    # Match transaction type names directly (longest first)
+    aliases = config.get('aliases', {})
+    for tt in sorted(config.get('transaction_types', []), key=len, reverse=True):
+        if len(tt) <= 2 and not tt.isascii():
+            pattern = rf'(?:^|(?<=\s)){re.escape(tt)}(?=\s|$)'
+        else:
+            pattern = rf'\b{re.escape(tt)}\b'
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            remaining = (text[:m.start()] + text[m.end():]).strip()
+            return tt, remaining
+
+    # Match aliases that point to a transaction type
+    tt_set = {t.lower() for t in config.get('transaction_types', [])}
+    for alias_key, alias_target in sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True):
+        if alias_target.lower() in tt_set:
+            if len(alias_key) <= 2 and not alias_key.isascii():
+                pattern = rf'(?:^|(?<=\s)){re.escape(alias_key)}(?=\s|$)'
+            else:
+                pattern = rf'\b{re.escape(alias_key)}\b'
+            m = re.search(pattern, text, re.IGNORECASE)
+            if m:
+                remaining = (text[:m.start()] + text[m.end():]).strip()
+                return alias_target, remaining
+
     return None, text
 
 

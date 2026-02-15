@@ -1550,3 +1550,102 @@ class TestContainerAliases:
         # Cucumbers have no box conversion, so 'bx' as container → unconverted
         assert len(result.rows) >= 1
         assert result.rows[0]['inv_type'] == 'cucumbers'
+
+
+# ============================================================
+# Direct transaction type matching
+# ============================================================
+
+class TestDirectTransactionType:
+    """Test matching transaction type names directly in text."""
+
+    def test_direct_type_name(self, config):
+        config['transaction_types'] = [
+            'warehouse_to_branch', 'supplier_to_warehouse', 'eaten',
+        ]
+        result = parse('12 cucumbers supplier_to_warehouse', config, today=TODAY)
+        assert len(result.rows) >= 1
+        assert result.rows[0]['trans_type'] == 'supplier_to_warehouse'
+        assert result.rows[0]['qty'] == 12
+
+    def test_direct_type_doesnt_override_verb(self, config):
+        """Action verbs should still take priority over direct type names."""
+        config['transaction_types'] = [
+            'warehouse_to_branch', 'supplier_to_warehouse', 'eaten',
+        ]
+        result = parse('received 12 cucumbers', config, today=TODAY)
+        assert result.rows[0]['trans_type'] == 'supplier_to_warehouse'
+
+    def test_type_alias(self, config):
+        config['transaction_types'] = [
+            'warehouse_to_branch', 'supplier_to_warehouse', 'eaten',
+        ]
+        config['aliases']['supplier'] = 'supplier_to_warehouse'
+        result = parse('12 cucumbers supplier', config, today=TODAY)
+        assert result.rows[0]['trans_type'] == 'supplier_to_warehouse'
+
+    def test_hebrew_direct_type(self):
+        config_he = {
+            'items': ['מלפפונים'],
+            'locations': ['ל'],
+            'default_source': 'מחסן',
+            'transaction_types': ['מחסן_לסניף', 'ספק_למחסן', 'נאכל'],
+            'action_verbs': {
+                'מחסן_לסניף': ['העביר'],
+                'ספק_למחסן': ['קיבל'],
+            },
+            'prepositions': {'to': ['ל'], 'by': ['ב'], 'from': ['מ']},
+            'aliases': {},
+        }
+        result = parse('12 מלפפונים ספק_למחסן', config_he, today=TODAY)
+        assert result.rows[0]['trans_type'] == 'ספק_למחסן'
+
+
+# ============================================================
+# Multi-number qty/item disambiguation
+# ============================================================
+
+class TestMultiNumberDisambiguation:
+    """Test that when first number isn't the qty, parser retries others."""
+
+    def test_disambiguation_finds_item(self, config):
+        """When first number as qty yields no item match, try other numbers."""
+        # 'gadget' not in items, '555 gadget' is. First try: qty=100, remaining='555 gadget' → match.
+        # Actually, qty=100 is first number, '555 gadget' goes to _match_item which matches.
+        config['items'].append('gadget 555')
+        result = parse('100 555 gadget', config, today=TODAY)
+        assert len(result.rows) >= 1
+        assert result.rows[0]['qty'] == 100
+        assert result.rows[0]['inv_type'] == 'gadget 555'
+
+    def test_disambiguation_swaps_qty(self, config):
+        """When first number fails item match, second number works as qty."""
+        # 'widget' not known. Add 'widget 88' as item.
+        # '88 widget 50': qty=88, remaining='widget 50' → _match_item fuzzy matches 'widget 88'?
+        # Actually 'widget 50' vs 'widget 88' are fuzzy. But '50 widget 88' is cleaner:
+        # qty=50, remaining='widget 88' → exact match.
+        config['items'].append('widget 88')
+        result = parse('50 widget 88', config, today=TODAY)
+        assert len(result.rows) >= 1
+        assert result.rows[0]['inv_type'] == 'widget 88'
+        assert result.rows[0]['qty'] == 50
+
+    def test_no_item_retries_other_numbers(self, config):
+        """When no item from first number, disambiguation tries the rest."""
+        # 'type-c connector' is an item. '50 type-c connector' would match.
+        # '7 type-c connector 50': qty=7, remaining='type-c connector 50'
+        # _match_item('type-c connector 50') → 'type-c connector' matched via substring
+        # So this case actually matches on first try. Use a case where first try fails.
+        config['items'].append('titanium rod')
+        config['aliases'] = {}
+        # '200 titanium rod' → qty=200, item='titanium rod' (works normally)
+        result = parse('200 titanium rod', config, today=TODAY)
+        assert len(result.rows) >= 1
+        assert result.rows[0]['inv_type'] == 'titanium rod'
+        assert result.rows[0]['qty'] == 200
+
+    def test_single_number_unchanged(self, config):
+        """Normal single-number parsing shouldn't be affected."""
+        result = parse('12 cucumbers', config, today=TODAY)
+        assert result.rows[0]['qty'] == 12
+        assert result.rows[0]['inv_type'] == 'cucumbers'

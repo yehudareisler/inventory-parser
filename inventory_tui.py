@@ -120,6 +120,9 @@ _EN_DEFAULTS = {
         'convert_factor_prompt': 'How many units in 1 {container}: ',
         'fuzzy_confirm': '  \u2192 {resolved}? [{yes}/{no}] ',
         'help_locations_header': 'Known locations:',
+        'review_parse_btn': 'Parse',
+        'review_confirm_btn': 'Confirm',
+        'review_add_row_btn': '+ Row',
     },
 }
 
