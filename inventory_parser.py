@@ -308,7 +308,7 @@ def _extract_verb(text, config):
     aliases = config.get('aliases', {})
     for tt in sorted(config.get('transaction_types', []), key=len, reverse=True):
         # Build pattern that treats underscores, dashes, and spaces as interchangeable
-        tt_pattern = re.escape(tt).replace('_', r'[\s_-]')
+        tt_pattern = re.sub(r'\\-|_', lambda m: r'[\s_-]', re.escape(tt))
         if len(tt) <= 2 and not tt.isascii():
             pattern = rf'(?:^|(?<=\s)){tt_pattern}(?=\s|$)'
         else:
@@ -322,7 +322,7 @@ def _extract_verb(text, config):
     tt_set = {t.lower() for t in config.get('transaction_types', [])}
     for alias_key, alias_target in sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True):
         if alias_target.lower() in tt_set:
-            ak_pattern = re.escape(alias_key).replace('_', r'[\s_-]')
+            ak_pattern = re.sub(r'\\-|_', lambda m: r'[\s_-]', re.escape(alias_key))
             if len(alias_key) <= 2 and not alias_key.isascii():
                 pattern = rf'(?:^|(?<=\s)){ak_pattern}(?=\s|$)'
             else:
