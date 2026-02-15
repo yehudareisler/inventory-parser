@@ -304,12 +304,15 @@ def _extract_verb(text, config):
                 return trans_type, remaining
 
     # Match transaction type names directly (longest first)
+    # Also match dash/space variants (e.g. "warehouse-to-branch" matches "warehouse_to_branch")
     aliases = config.get('aliases', {})
     for tt in sorted(config.get('transaction_types', []), key=len, reverse=True):
+        # Build pattern that treats underscores, dashes, and spaces as interchangeable
+        tt_pattern = re.escape(tt).replace('_', r'[\s_-]')
         if len(tt) <= 2 and not tt.isascii():
-            pattern = rf'(?:^|(?<=\s)){re.escape(tt)}(?=\s|$)'
+            pattern = rf'(?:^|(?<=\s)){tt_pattern}(?=\s|$)'
         else:
-            pattern = rf'\b{re.escape(tt)}\b'
+            pattern = rf'(?:^|(?<=\s)|(?<=\b)){tt_pattern}(?=\s|$|\b)'
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             remaining = (text[:m.start()] + text[m.end():]).strip()
@@ -319,10 +322,11 @@ def _extract_verb(text, config):
     tt_set = {t.lower() for t in config.get('transaction_types', [])}
     for alias_key, alias_target in sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True):
         if alias_target.lower() in tt_set:
+            ak_pattern = re.escape(alias_key).replace('_', r'[\s_-]')
             if len(alias_key) <= 2 and not alias_key.isascii():
-                pattern = rf'(?:^|(?<=\s)){re.escape(alias_key)}(?=\s|$)'
+                pattern = rf'(?:^|(?<=\s)){ak_pattern}(?=\s|$)'
             else:
-                pattern = rf'\b{re.escape(alias_key)}\b'
+                pattern = rf'(?:^|(?<=\s)|(?<=\b)){ak_pattern}(?=\s|$|\b)'
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 remaining = (text[:m.start()] + text[m.end():]).strip()

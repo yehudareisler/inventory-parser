@@ -285,6 +285,16 @@ function cmd(key) {
     return (cfg.ui && cfg.ui.commands && cfg.ui.commands[key]) || key;
 }
 
+// ---- Auto-reparse on newline ----
+let parseTimer = null;
+rawInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        // Debounce: wait a tick so the newline is inserted first
+        clearTimeout(parseTimer);
+        parseTimer = setTimeout(() => doParse(), 50);
+    }
+});
+
 // ---- Re-parse indicator (B2) ----
 rawInput.addEventListener('input', () => {
     if (state.phase === 'parsed' && rawInput.value.trim() !== parsedText) {
