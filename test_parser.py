@@ -1649,3 +1649,88 @@ class TestMultiNumberDisambiguation:
         result = parse('12 cucumbers', config, today=TODAY)
         assert result.rows[0]['qty'] == 12
         assert result.rows[0]['inv_type'] == 'cucumbers'
+
+
+# ============================================================
+# Fuzzy verb matching
+# ============================================================
+
+class TestFuzzyVerbMatching:
+    """Fuzzy matching fallback for misspelled verbs."""
+
+    def test_fuzzy_verb_match(self, config):
+        """A misspelled verb should fuzzy-match the correct verb."""
+        config['action_verbs'] = {
+            'warehouse_to_branch': ['delivered', 'passed'],
+            'eaten': ['consumed'],
+        }
+        # 'deliverd' (ratio 0.94) is close to 'delivered'
+        result = parse('deliverd 12 cucumbers to L', config, today=TODAY)
+        assert len(result.rows) >= 1
+        assert result.rows[0]['trans_type'] == 'warehouse_to_branch'
+
+    def test_exact_verb_takes_priority(self, config):
+        """Exact verb match should still work before fuzzy kicks in."""
+        config['action_verbs'] = {
+            'warehouse_to_branch': ['delivered'],
+        }
+        result = parse('delivered 12 cucumbers to L', config, today=TODAY)
+        assert result.rows[0]['trans_type'] == 'warehouse_to_branch'
+
+    def test_short_verb_not_fuzzy(self, config):
+        """Short words (<=2 chars) should not fuzzy match verbs."""
+        config['action_verbs'] = {
+            'eaten': ['ate'],
+        }
+        # 'at' (2 chars) should NOT fuzzy match 'ate'
+        result = parse('12 cucumbers at L', config, today=TODAY)
+        # Should still parse the item, but not match 'eaten' from 'at'
+        assert result.rows[0]['inv_type'] == 'cucumbers'
+
+    def test_fuzzy_type_name_match(self, config):
+        """A misspelled transaction type name should fuzzy-match."""
+        config['transaction_types'] = ['warehouse_to_branch', 'supplier_to_warehouse', 'eaten']
+        # 'warehouse_to_branc' is close to 'warehouse_to_branch'
+        result = parse('12 cucumbers warehouse_to_branc to L', config, today=TODAY)
+        assert result.rows[0]['trans_type'] == 'warehouse_to_branch'
+
+
+# ============================================================
+# Fuzzy location matching
+# ============================================================
+
+class TestFuzzyLocationMatching:
+    """Fuzzy matching fallback for multi-char location names."""
+
+    def test_fuzzy_location_match(self):
+        """A misspelled multi-char location should fuzzy-match."""
+        config = {
+            'items': ['cucumbers'],
+            'locations': ['downtown', 'uptown'],
+            'default_source': 'warehouse',
+            'action_verbs': {},
+            'prepositions': {'to': ['to']},
+            'aliases': {},
+        }
+        # 'downtow' is close to 'downtown'
+        result = parse('12 cucumbers downtow', config, today=TODAY)
+        assert len(result.rows) >= 1
+        # Should resolve to 'downtown'
+        has_downtown = any(r.get('vehicle_sub_unit') == 'downtown' for r in result.rows)
+        assert has_downtown
+
+    def test_short_location_not_fuzzy(self):
+        """Short (1-2 char) locations should not be fuzzy-matched."""
+        config = {
+            'items': ['cucumbers'],
+            'locations': ['L', 'C'],
+            'default_source': 'warehouse',
+            'action_verbs': {},
+            'prepositions': {'to': ['to']},
+            'aliases': {},
+        }
+        # 'M' is not close enough to 'L' for fuzzy — and short locs skip fuzzy
+        result = parse('12 cucumbers M', config, today=TODAY)
+        assert len(result.rows) >= 1
+        # Should NOT fuzzy match to L
+        assert result.rows[0].get('vehicle_sub_unit') != 'L'

@@ -269,6 +269,28 @@ def _extract_location(text, config):
                     remaining = (text[:start] + text[m.end():]).strip()
                     canonical = loc_alias_map.get(loc, loc)
                     return canonical, direction, remaining
+    # Fuzzy fallback for multi-char location names
+    # Use higher cutoff — location false positives consume words from text
+    multi_char_locs = [l for l in all_locs if len(l) > 2]
+    if multi_char_locs:
+        words = text.split()
+        for i, word in enumerate(words):
+            w = word.strip()
+            if not w or len(w) <= 2:
+                continue
+            cutoff = 0.85 if len(w) <= 4 else 0.75
+            matches = get_close_matches(w.lower(),
+                                        [l.lower() for l in multi_char_locs],
+                                        n=1, cutoff=cutoff)
+            if matches:
+                # Resolve back to canonical
+                for loc in multi_char_locs:
+                    if loc.lower() == matches[0]:
+                        canonical = loc_alias_map.get(loc, loc)
+                        remaining = ' '.join(words[:i] + words[i+1:]).strip()
+                        return canonical, 'to', remaining
+                        break
+
     return None, None, text
 
 
@@ -305,6 +327,31 @@ def _extract_verb(text, config):
             if m:
                 remaining = (text[:m.start()] + text[m.end():]).strip()
                 return alias_target, remaining
+
+    # Fuzzy fallback: try matching each word against verbs and type names
+    # Use higher cutoff than items — verb false positives are destructive
+    all_verbs = {}  # verb_text -> trans_type
+    for trans_type, verbs in config.get('action_verbs', {}).items():
+        for v in verbs:
+            all_verbs[v.lower()] = trans_type
+    for tt in config.get('transaction_types', []):
+        all_verbs[tt.lower()] = tt
+    for alias_key, alias_target in aliases.items():
+        if alias_target.lower() in tt_set:
+            all_verbs[alias_key.lower()] = alias_target
+
+    if all_verbs:
+        words = text.split()
+        for i, word in enumerate(words):
+            w = word.strip()
+            if not w or len(w) <= 2:
+                continue
+            cutoff = 0.85 if len(w) <= 4 else 0.75
+            matches = get_close_matches(w.lower(), list(all_verbs.keys()),
+                                        n=1, cutoff=cutoff)
+            if matches:
+                remaining = ' '.join(words[:i] + words[i+1:]).strip()
+                return all_verbs[matches[0]], remaining
 
     return None, text
 

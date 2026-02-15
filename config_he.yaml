@@ -71,6 +71,16 @@ non_zero_sum_types:
 - ספירה_חוזרת
 - ספק_למחסן
 default_transfer_type: מחסן_לסניף
+field_options:
+  inv_type: items
+  trans_type: transaction_types
+  vehicle_sub_unit: locations
+required_fields:
+- trans_type
+- vehicle_sub_unit
+field_defaults:
+  vehicle_sub_unit: מחסן
+  trans_type: מחסן_לסניף
 ui:
   commands:
     confirm: א
@@ -109,6 +119,14 @@ ui:
   - מיקום
   - קבוצה
   - הערות
+  field_order:
+  - date
+  - inv_type
+  - qty
+  - trans_type
+  - vehicle_sub_unit
+  - batch
+  - notes
   option_letters: אבגדהוזחטיכלמנסעפצקרשת
   strings:
     paste_prompt: '

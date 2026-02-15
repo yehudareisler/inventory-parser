@@ -1118,7 +1118,7 @@ class TestFormatRowsForClipboard:
         assert ' | ' not in tsv
 
     def test_columns_in_correct_order(self):
-        """Column order: DATE, ITEM, QTY, TYPE, LOCATION, NOTES, BATCH."""
+        """Column order: DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES."""
         row = self._make_row(
             date=date(2025, 6, 15), inv_type='spaghetti', qty=34,
             trans_type='eaten', vehicle_sub_unit='L', batch=2, notes='test',
@@ -1130,8 +1130,8 @@ class TestFormatRowsForClipboard:
         assert data[2] == '34'           # QTY
         assert data[3] == 'eaten'        # TYPE
         assert data[4] == 'L'            # LOCATION
-        assert data[5] == 'test'         # NOTES
-        assert data[6] == '2'            # BATCH
+        assert data[5] == '2'            # BATCH
+        assert data[6] == 'test'         # NOTES
 
     def test_none_fields_show_placeholder(self):
         """None trans_type and vehicle_sub_unit → '???'."""
@@ -1168,7 +1168,7 @@ class TestFormatRowsForClipboard:
         row = self._make_row(notes=None)
         tsv = format_rows_for_clipboard([row])
         data = tsv.split('\t')
-        assert data[5] == ''  # NOTES is now column 5
+        assert data[6] == ''  # NOTES is column 6 (after batch)
 
     def test_empty_rows_returns_empty_string(self):
         """No rows → empty string (nothing to copy)."""
@@ -1749,3 +1749,75 @@ class TestPastePromptHints:
         prompt = ui.s('paste_prompt')
         assert 'alias' in prompt.lower()
         assert 'convert' in prompt.lower()
+
+
+# ============================================================
+# Config-driven field functions
+# ============================================================
+
+class TestConfigDrivenFields:
+    """Test that field functions read from config."""
+
+    def test_get_closed_set_fields_from_config(self, config):
+        from inventory_tui import get_closed_set_fields
+        config['field_options'] = {
+            'inv_type': 'items',
+            'trans_type': 'transaction_types',
+        }
+        result = get_closed_set_fields(config)
+        assert result == {'inv_type', 'trans_type'}
+
+    def test_get_closed_set_fields_default(self, config):
+        from inventory_tui import get_closed_set_fields
+        # Without field_options, falls back to default
+        result = get_closed_set_fields(config)
+        assert 'inv_type' in result
+        assert 'trans_type' in result
+        assert 'vehicle_sub_unit' in result
+
+    def test_get_field_order_from_config(self, config):
+        from inventory_tui import get_field_order
+        config['ui'] = {'field_order': ['qty', 'inv_type', 'date']}
+        result = get_field_order(config)
+        assert result == ['qty', 'inv_type', 'date']
+
+    def test_get_field_order_default(self, config):
+        from inventory_tui import get_field_order
+        result = get_field_order(config)
+        assert result[0] == 'date'
+        assert 'inv_type' in result
+
+    def test_get_required_fields_from_config(self, config):
+        from inventory_tui import get_required_fields
+        config['required_fields'] = ['trans_type']
+        result = get_required_fields(config)
+        assert result == ['trans_type']
+
+    def test_get_required_fields_default(self, config):
+        from inventory_tui import get_required_fields
+        result = get_required_fields(config)
+        assert 'trans_type' in result
+        assert 'vehicle_sub_unit' in result
+
+    def test_row_has_warning_with_config(self, config):
+        from inventory_tui import row_has_warning
+        config['required_fields'] = ['trans_type']
+        row = {'trans_type': None, 'vehicle_sub_unit': 'L'}
+        assert row_has_warning(row, config) is True
+        row2 = {'trans_type': 'eaten', 'vehicle_sub_unit': None}
+        assert row_has_warning(row2, config) is False  # vehicle_sub_unit not required
+
+    def test_get_closed_set_options_from_field_options(self, config):
+        from inventory_tui import get_closed_set_options
+        config['field_options'] = {'inv_type': 'items'}
+        options = get_closed_set_options('inv_type', config)
+        assert options == config['items']
+
+    def test_format_rows_for_clipboard_uses_field_order(self, config):
+        config['ui'] = {'field_order': ['inv_type', 'qty']}
+        rows = [{'date': date(2025, 1, 1), 'inv_type': 'cucumbers', 'qty': 10,
+                 'trans_type': 'eaten', 'vehicle_sub_unit': 'L', 'batch': 1, 'notes': None}]
+        result = format_rows_for_clipboard(rows, config)
+        cells = result.split('\t')
+        assert cells[0] == 'cucumbers'
+        assert cells[1] == '10'

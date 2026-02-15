@@ -66,6 +66,19 @@ non_zero_sum_types:
 
 default_transfer_type: warehouse_to_branch
 
+field_options:
+  inv_type: items
+  trans_type: transaction_types
+  vehicle_sub_unit: locations
+
+required_fields:
+  - trans_type
+  - vehicle_sub_unit
+
+field_defaults:
+  vehicle_sub_unit: warehouse
+  trans_type: warehouse_to_branch
+
 ui:
   commands:
     confirm: c
@@ -96,6 +109,14 @@ ui:
     notes: NOTES
     batch: BATCH
   table_headers: ['#', DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES]
+  field_order:
+    - date
+    - inv_type
+    - qty
+    - trans_type
+    - vehicle_sub_unit
+    - batch
+    - notes
   option_letters: abcdefghijklmnopqrstuvwxyz
   strings:
     paste_prompt: "\nPaste message ('exit' to quit, 'alias'/'convert' to add):"

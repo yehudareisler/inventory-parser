@@ -18,6 +18,8 @@ from inventory_tui import (
     format_rows_for_clipboard, find_partner,
     check_alias_opportunity, check_conversion_opportunity,
     empty_row, eval_qty, parse_date,
+    get_closed_set_fields, get_field_order, get_required_fields,
+    get_closed_set_options, row_has_warning,
 )
 
 _state_lock = threading.Lock()
@@ -97,6 +99,13 @@ body {
 }
 #raw-input:focus { border-color: #555; }
 #raw-input::placeholder { color: #666; }
+#raw-input.stale { border-color: #806020; }
+#reparse-hint {
+    display: none;
+    color: #e0a040;
+    font-size: 12px;
+    margin-top: 2px;
+}
 #buttons {
     display: flex;
     flex-wrap: wrap;
@@ -158,20 +167,6 @@ td.editing input, td.editing select {
 .unparse { color: #c08060; margin: 4px 0; word-wrap: break-word; }
 .status { color: #60c060; margin: 8px 0; word-wrap: break-word; }
 .error { color: #c06060; margin: 8px 0; word-wrap: break-word; }
-#cmd-input {
-    width: 100%;
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 4px;
-    color: #ccc;
-    font-family: inherit;
-    font-size: inherit;
-    padding: 6px 10px;
-    margin-top: 8px;
-    direction: rtl;
-    outline: none;
-}
-#cmd-input:focus { border-color: #555; }
 .row-num {
     text-align: center;
     cursor: default;
@@ -184,17 +179,71 @@ td.editing input, td.editing select {
     min-width: 24px;
 }
 .delete-btn:hover { color: #ff6060; background: #2a1a1a; }
+/* Modal overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+.modal {
+    background: #1a1a1a;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 320px;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    direction: rtl;
+}
+.modal h3 { margin-bottom: 12px; color: #ddd; }
+.modal .context { color: #888; font-size: 12px; margin-bottom: 10px; word-wrap: break-word; }
+.modal label { display: block; margin-bottom: 6px; color: #aaa; }
+.modal input[type=text], .modal input[type=number] {
+    width: 100%;
+    background: #111;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #ccc;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 6px 8px;
+    margin-bottom: 10px;
+    direction: rtl;
+}
+.modal .modal-buttons { display: flex; gap: 8px; justify-content: flex-start; margin-top: 12px; }
+.modal .fuzzy-confirm { color: #e0a040; margin: 6px 0; }
+/* Help panel */
+#help-panel {
+    display: none;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+#help-panel h4 { color: #ddd; margin: 8px 0 4px 0; }
+#help-panel h4:first-child { margin-top: 0; }
+#help-panel .help-list { color: #aaa; margin: 2px 0 2px 16px; }
 </style>
 </head>
 <body>
 <div id="main">
     <div id="left-pane">
         <textarea id="raw-input" autofocus></textarea>
+        <div id="reparse-hint"></div>
         <div id="buttons"></div>
     </div>
     <div id="right-pane">
+        <div id="help-panel"></div>
         <div id="output"></div>
-        <input id="cmd-input" autocomplete="off" style="display:none">
     </div>
 </div>
 <script>
@@ -202,11 +251,13 @@ const $ = s => document.querySelector(s);
 const output = $('#output');
 const rawInput = $('#raw-input');
 const buttons = $('#buttons');
-const cmdInput = $('#cmd-input');
+const reparseHint = $('#reparse-hint');
+const helpPanel = $('#help-panel');
 
 let state = { rows: [], notes: [], unparseable: [], phase: 'idle' };
-let cfg = { items: [], locations: [], transaction_types: [], aliases: {}, ui: {} };
+let cfg = { items: [], locations: [], transaction_types: [], aliases: {}, ui: {}, field_options: {}, required_fields: [], field_order: [] };
 let editingCell = null;
+let parsedText = '';  // track what was last parsed
 
 // Fetch config on load
 async function loadConfig() {
@@ -215,12 +266,13 @@ async function loadConfig() {
         cfg = await r.json();
         rawInput.placeholder = cfg.ui.paste_prompt || '';
         renderButtons();
+        buildHelp();
     } catch(e) { console.error('loadConfig failed', e); }
 }
 loadConfig();
 
 function s(key, vars) {
-    let t = (cfg.ui.strings && cfg.ui.strings[key]) || key;
+    let t = (cfg.ui && cfg.ui.strings && cfg.ui.strings[key]) || key;
     if (vars) {
         for (const [k, v] of Object.entries(vars)) {
             t = t.replace(new RegExp('\\{' + k + '\\}', 'g'), v);
@@ -230,7 +282,66 @@ function s(key, vars) {
 }
 
 function cmd(key) {
-    return (cfg.ui.commands && cfg.ui.commands[key]) || key;
+    return (cfg.ui && cfg.ui.commands && cfg.ui.commands[key]) || key;
+}
+
+// ---- Re-parse indicator (B2) ----
+rawInput.addEventListener('input', () => {
+    if (state.phase === 'parsed' && rawInput.value.trim() !== parsedText) {
+        rawInput.classList.add('stale');
+        reparseHint.style.display = 'block';
+        reparseHint.textContent = s('review_parse_btn') + ' \u2190';
+    } else {
+        rawInput.classList.remove('stale');
+        reparseHint.style.display = 'none';
+    }
+});
+
+// ---- Closed-set fields from config (A4) ----
+function getClosedFields() {
+    if (cfg.field_options && Object.keys(cfg.field_options).length) {
+        return Object.keys(cfg.field_options);
+    }
+    return ['inv_type', 'trans_type', 'vehicle_sub_unit'];
+}
+
+function getFieldOptions(field) {
+    const fo = cfg.field_options || {};
+    const configKey = fo[field];
+    if (configKey && cfg[configKey]) {
+        const options = [...cfg[configKey]];
+        if (field === 'vehicle_sub_unit' && cfg.default_source && !options.includes(cfg.default_source)) {
+            options.unshift(cfg.default_source);
+        }
+        return options;
+    }
+    // Legacy fallback
+    if (field === 'inv_type') return cfg.items || [];
+    if (field === 'trans_type') return cfg.transaction_types || [];
+    if (field === 'vehicle_sub_unit') {
+        const locs = [...(cfg.locations || [])];
+        if (cfg.default_source && !locs.includes(cfg.default_source)) locs.unshift(cfg.default_source);
+        return locs;
+    }
+    return [];
+}
+
+// ---- Warning check from config (A2) ----
+function rowHasWarning(row) {
+    const required = cfg.required_fields || ['trans_type', 'vehicle_sub_unit'];
+    return required.some(f => row[f] == null || row[f] === '???');
+}
+
+function getIncompleteRows() {
+    const incomplete = [];
+    const required = cfg.required_fields || ['trans_type', 'vehicle_sub_unit'];
+    for (let i = 0; i < state.rows.length; i++) {
+        const row = state.rows[i];
+        if (row.inv_type === '???' || required.some(f => row[f] == null)) {
+            incomplete.push(i + 1);
+        }
+    }
+    return incomplete;
 }
 
 // ---- Buttons ----
@@ -252,9 +363,9 @@ function renderButtons() {
         mkBtn(s('review_confirm_btn') || cmd('confirm'), 'btn-primary', doConfirm);
         mkBtn(s('review_add_row_btn') || '+', '', doAddRow);
     }
-    // Always show alias/convert
-    mkBtn(s('cmd_alias') || 'alias', '', () => showAliasDialog());
-    mkBtn(s('cmd_convert') || 'convert', '', () => showConvertDialog());
+    mkBtn(s('cmd_alias') || 'alias', '', () => showAliasModal());
+    mkBtn(s('cmd_convert') || 'convert', '', () => showConvertModal());
+    mkBtn('?', '', toggleHelp);
 }
 
 // ---- Parse ----
@@ -272,13 +383,29 @@ async function doParse() {
         state.notes = d.notes || [];
         state.unparseable = d.unparseable || [];
         state.phase = 'parsed';
+        parsedText = text;
+        rawInput.classList.remove('stale');
+        reparseHint.style.display = 'none';
         renderAll();
     } catch(e) { showError('Parse failed: ' + e); }
 }
 
-// ---- Confirm ----
+// ---- Confirm (B1: incomplete warning) ----
 async function doConfirm() {
     if (!state.rows.length) return;
+
+    // B1: Check for incomplete fields before confirming
+    const incomplete = getIncompleteRows();
+    if (incomplete.length) {
+        const rowList = incomplete.join(', ');
+        const msg = s('confirm_incomplete_warning', {
+            row_list: rowList,
+            yes: cmd('yes'),
+            no: cmd('no')
+        });
+        if (!confirm(msg)) return;
+    }
+
     try {
         const r = await fetch('/api/confirm', {
             method: 'POST',
@@ -290,13 +417,12 @@ async function doConfirm() {
             try { await navigator.clipboard.writeText(d.clip); }
             catch(e) { console.warn('clipboard failed', e); }
         }
-        showStatus(s('clipboard_copied', {count: d.count}) || d.count + ' rows copied');
+        showStatus(s('clipboard_copied', {count: String(d.count)}) || d.count + ' rows copied');
 
-        // Check for alias/conversion learning opportunities
+        // Alias learning
         if (d.alias_prompts && d.alias_prompts.length) {
             for (const [orig, canon] of d.alias_prompts) {
-                const yes = cmd('yes'), no = cmd('no');
-                if (confirm(s('save_alias_prompt', {original: orig, canonical: canon, yes, no}))) {
+                if (confirm(s('save_alias_prompt', {original: orig, canonical: canon, yes: cmd('yes'), no: cmd('no')}))) {
                     await fetch('/api/alias', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -305,16 +431,10 @@ async function doConfirm() {
                 }
             }
         }
+        // Conversion learning — use modal
         if (d.conv_prompts && d.conv_prompts.length) {
             for (const [item, container] of d.conv_prompts) {
-                const factor = prompt(s('save_conversion_prompt', {item, container}));
-                if (factor && !isNaN(parseFloat(factor))) {
-                    await fetch('/api/conversion', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({item, container, factor: parseFloat(factor)})
-                    });
-                }
+                await showConvertLearnModal(item, container);
             }
         }
 
@@ -322,6 +442,7 @@ async function doConfirm() {
         state.notes = [];
         state.unparseable = [];
         state.phase = 'idle';
+        parsedText = '';
         rawInput.value = '';
         await loadConfig();
         renderAll();
@@ -363,11 +484,10 @@ function startEdit(td, rowIdx, field) {
     editingCell = { td, rowIdx, field };
     td.classList.add('editing');
 
-    const closedFields = ['inv_type', 'trans_type', 'vehicle_sub_unit'];
+    const closedFields = getClosedFields();
     const currentVal = state.rows[rowIdx][field];
 
     if (closedFields.includes(field)) {
-        // Dropdown
         const sel = document.createElement('select');
         const options = getFieldOptions(field);
         for (const opt of options) {
@@ -383,7 +503,6 @@ function startEdit(td, rowIdx, field) {
         td.appendChild(sel);
         sel.focus();
     } else {
-        // Text input
         const inp = document.createElement('input');
         inp.value = currentVal != null ? String(currentVal) : '';
         inp.onkeydown = e => {
@@ -396,17 +515,6 @@ function startEdit(td, rowIdx, field) {
         inp.focus();
         inp.select();
     }
-}
-
-function getFieldOptions(field) {
-    if (field === 'inv_type') return cfg.items || [];
-    if (field === 'trans_type') return cfg.transaction_types || [];
-    if (field === 'vehicle_sub_unit') {
-        const locs = [...(cfg.locations || [])];
-        if (cfg.default_source && !locs.includes(cfg.default_source)) locs.unshift(cfg.default_source);
-        return locs;
-    }
-    return [];
 }
 
 async function commitEdit(value) {
@@ -431,42 +539,212 @@ function cancelEdit() {
     renderAll();
 }
 
-// ---- Alias dialog ----
-function showAliasDialog() {
-    const alias = prompt(s('alias_short_prompt'));
-    if (!alias) return;
-    const target = prompt(s('alias_maps_to_prompt'));
-    if (!target) return;
-    fetch('/api/alias', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({alias, target})
-    }).then(r => r.json()).then(d => {
+// ============================================================
+// Modal system (B4: replaces prompt() with context-rich dialogs)
+// ============================================================
+
+function createModal(title) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    const h3 = document.createElement('h3');
+    h3.textContent = title;
+    modal.appendChild(h3);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    return { overlay, modal };
+}
+
+function addContext(modal, label, items) {
+    if (!items || !items.length) return;
+    const ctx = document.createElement('div');
+    ctx.className = 'context';
+    ctx.textContent = label + ' ' + items.join(', ');
+    modal.appendChild(ctx);
+}
+
+function addInput(modal, label, id, type) {
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    modal.appendChild(lbl);
+    const inp = document.createElement('input');
+    inp.type = type || 'text';
+    inp.id = id;
+    modal.appendChild(inp);
+    return inp;
+}
+
+function addButtons(modal, overlay, onOk, okLabel, cancelLabel) {
+    const div = document.createElement('div');
+    div.className = 'modal-buttons';
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn-primary';
+    okBtn.textContent = okLabel || 'OK';
+    okBtn.onclick = () => onOk(overlay);
+    div.appendChild(okBtn);
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn';
+    cancelBtn.textContent = cancelLabel || s('edit_cancelled').trim() || 'Cancel';
+    cancelBtn.onclick = () => overlay.remove();
+    div.appendChild(cancelBtn);
+    modal.appendChild(div);
+}
+
+// ---- Alias modal (B4 + B5) ----
+function showAliasModal() {
+    const { overlay, modal } = createModal(s('cmd_alias'));
+    addContext(modal, s('help_items_header'), cfg.items);
+    addContext(modal, s('help_locations_header'), cfg.locations);
+    if (cfg.aliases && Object.keys(cfg.aliases).length) {
+        const aliasLines = Object.entries(cfg.aliases).map(([a,t]) => a + ' \u2192 ' + t);
+        addContext(modal, s('help_aliases_header'), aliasLines);
+    }
+    const aliasInp = addInput(modal, s('alias_short_prompt'), 'modal-alias', 'text');
+    const targetInp = addInput(modal, s('alias_maps_to_prompt'), 'modal-target', 'text');
+
+    const fuzzyDiv = document.createElement('div');
+    fuzzyDiv.className = 'fuzzy-confirm';
+    fuzzyDiv.style.display = 'none';
+    modal.appendChild(fuzzyDiv);
+
+    addButtons(modal, overlay, async (ov) => {
+        const alias = aliasInp.value.trim();
+        const target = targetInp.value.trim();
+        if (!alias || !target) return;
+
+        const r = await fetch('/api/alias', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({alias, target})
+        });
+        const d = await r.json();
+
+        // B5: fuzzy match confirmation
+        if (d.ok && d.match_type === 'fuzzy') {
+            const confirmMsg = s('fuzzy_confirm', {resolved: d.resolved, yes: cmd('yes'), no: cmd('no')});
+            if (!confirm(confirmMsg)) {
+                // Undo: re-save without this alias
+                // For simplicity, just warn and let user fix manually
+                ov.remove();
+                return;
+            }
+        }
+
         if (d.ok) {
             showStatus(s('alias_saved', {alias, item: d.resolved || target}));
-            loadConfig();
+            await loadConfig();
         }
+        ov.remove();
+    }, s('review_confirm_btn'));
+
+    aliasInp.focus();
+}
+
+// ---- Convert modal (B4) ----
+function showConvertModal() {
+    const { overlay, modal } = createModal(s('cmd_convert'));
+    addContext(modal, s('help_items_header'), cfg.items);
+    // Show known containers
+    const containers = new Set();
+    for (const convs of Object.values(cfg.unit_conversions || {})) {
+        for (const k of Object.keys(convs)) {
+            if (k !== 'base_unit') containers.add(k);
+        }
+    }
+    if (containers.size) {
+        addContext(modal, s('convert_container_prompt').replace(':','') + ':', [...containers]);
+    }
+    const itemInp = addInput(modal, s('convert_item_prompt'), 'modal-conv-item', 'text');
+    const contInp = addInput(modal, s('convert_container_prompt'), 'modal-conv-cont', 'text');
+    const factorInp = addInput(modal, s('convert_factor_prompt', {container: '...'}), 'modal-conv-factor', 'number');
+
+    addButtons(modal, overlay, async (ov) => {
+        const item = itemInp.value.trim();
+        const container = contInp.value.trim();
+        const factor = factorInp.value.trim();
+        if (!item || !container || !factor || isNaN(parseFloat(factor))) return;
+
+        const r = await fetch('/api/conversion', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({item, container, factor: parseFloat(factor)})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            showStatus(s('conversion_saved', {item: d.item || item, container: d.container || container, factor}));
+            await loadConfig();
+        }
+        ov.remove();
+    }, s('review_confirm_btn'));
+
+    itemInp.focus();
+}
+
+// ---- Convert learn modal (post-confirm) ----
+function showConvertLearnModal(item, container) {
+    return new Promise(resolve => {
+        const { overlay, modal } = createModal(s('save_conversion_prompt', {item, container}));
+        const factorInp = addInput(modal, s('convert_factor_prompt', {container}), 'modal-learn-factor', 'number');
+        addButtons(modal, overlay, async (ov) => {
+            const factor = factorInp.value.trim();
+            if (factor && !isNaN(parseFloat(factor))) {
+                await fetch('/api/conversion', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({item, container, factor: parseFloat(factor)})
+                });
+            }
+            ov.remove();
+            resolve();
+        }, s('review_confirm_btn'));
+        const skipBtn = modal.querySelector('.modal-buttons .btn:not(.btn-primary)');
+        if (skipBtn) {
+            const origClick = skipBtn.onclick;
+            skipBtn.onclick = () => { origClick(); resolve(); };
+        }
+        factorInp.focus();
     });
 }
 
-// ---- Convert dialog ----
-function showConvertDialog() {
-    const item = prompt(s('convert_item_prompt'));
-    if (!item) return;
-    const container = prompt(s('convert_container_prompt'));
-    if (!container) return;
-    const factor = prompt(s('convert_factor_prompt', {container}));
-    if (!factor || isNaN(parseFloat(factor))) return;
-    fetch('/api/conversion', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({item, container, factor: parseFloat(factor)})
-    }).then(r => r.json()).then(d => {
-        if (d.ok) {
-            showStatus(s('conversion_saved', {item: d.item || item, container: d.container || container, factor}));
-            loadConfig();
+// ---- Help panel (B3) ----
+function toggleHelp() {
+    helpPanel.style.display = helpPanel.style.display === 'none' ? 'block' : 'none';
+}
+
+function buildHelp() {
+    helpPanel.innerHTML = '';
+    const addSection = (title, items) => {
+        if (!items || !items.length) return;
+        const h4 = document.createElement('h4');
+        h4.textContent = title;
+        helpPanel.appendChild(h4);
+        for (const item of items) {
+            const d = document.createElement('div');
+            d.className = 'help-list';
+            d.textContent = item;
+            helpPanel.appendChild(d);
         }
-    });
+    };
+
+    addSection(s('help_items_header'), (cfg.items || []).map(item => {
+        const itemAliases = Object.entries(cfg.aliases || {}).filter(([,v]) => v === item).map(([k]) => k);
+        return itemAliases.length ? item + '  (' + itemAliases.join(', ') + ')' : item;
+    }));
+    addSection(s('help_locations_header'), cfg.locations || []);
+    addSection(s('help_commands_header'), [
+        'Ctrl+Enter: ' + s('review_parse_btn'),
+    ]);
+
+    // Field codes
+    if (cfg.ui && cfg.ui.field_codes) {
+        const codes = Object.entries(cfg.ui.field_codes).map(([letter, field]) => {
+            const name = (cfg.ui.field_display_names && cfg.ui.field_display_names[field]) || field;
+            return letter + ' = ' + name;
+        });
+        addSection(s('help_field_codes_header'), codes);
+    }
 }
 
 // ---- Render ----
@@ -485,24 +763,21 @@ function renderTable() {
     }
 
     if (state.rows.length) {
+        const fields = cfg.field_order || cfg.ui.field_order || ['date','inv_type','qty','trans_type','vehicle_sub_unit','batch','notes'];
         const headers = cfg.ui.table_headers || ['#','DATE','ITEM','QTY','TYPE','LOCATION','BATCH','NOTES'];
-        const fields = ['date','inv_type','qty','trans_type','vehicle_sub_unit','batch','notes'];
         const tbl = document.createElement('table');
 
         // Header
         const thead = document.createElement('thead');
         const hr = document.createElement('tr');
-        // Row # header
         const thNum = document.createElement('th');
         thNum.textContent = headers[0] || '#';
         hr.appendChild(thNum);
-        // Field headers
         for (let i = 0; i < fields.length; i++) {
             const th = document.createElement('th');
             th.textContent = headers[i + 1] || fields[i];
             hr.appendChild(th);
         }
-        // Delete column
         const thDel = document.createElement('th');
         thDel.textContent = '';
         thDel.style.width = '30px';
@@ -515,15 +790,13 @@ function renderTable() {
         for (let ri = 0; ri < state.rows.length; ri++) {
             const row = state.rows[ri];
             const tr = document.createElement('tr');
-            const hasWarning = !row.trans_type || !row.vehicle_sub_unit;
+            const hasWarning = rowHasWarning(row);
 
-            // Row number
             const tdNum = document.createElement('td');
             tdNum.className = 'row-num';
             tdNum.textContent = (hasWarning ? '\u26a0 ' : '') + (ri + 1);
             tr.appendChild(tdNum);
 
-            // Fields
             for (const field of fields) {
                 const td = document.createElement('td');
                 let val = row[field];
@@ -538,7 +811,6 @@ function renderTable() {
                 tr.appendChild(td);
             }
 
-            // Delete button
             const tdDel = document.createElement('td');
             tdDel.className = 'delete-btn';
             tdDel.textContent = '\u00d7';
@@ -552,7 +824,6 @@ function renderTable() {
         output.appendChild(tbl);
     }
 
-    // Notes
     for (const note of (state.notes || [])) {
         const d = document.createElement('div');
         d.className = 'note';
@@ -560,7 +831,6 @@ function renderTable() {
         output.appendChild(d);
     }
 
-    // Unparseable
     for (const u of (state.unparseable || [])) {
         const d = document.createElement('div');
         d.className = 'unparse';
@@ -642,6 +912,10 @@ class _H(http.server.BaseHTTPRequestHandler):
             'default_source': config.get('default_source', ''),
             'transaction_types': config.get('transaction_types', []),
             'aliases': config.get('aliases', {}),
+            'unit_conversions': config.get('unit_conversions', {}),
+            'field_options': config.get('field_options', {}),
+            'required_fields': get_required_fields(config),
+            'field_order': get_field_order(config),
             'ui': {
                 'commands': ui.commands,
                 'field_codes': ui.field_codes,
@@ -649,6 +923,7 @@ class _H(http.server.BaseHTTPRequestHandler):
                 'table_headers': ui.table_headers,
                 'option_letters': ui.option_letters,
                 'strings': ui.strings,
+                'field_order': get_field_order(config),
             },
         }
         self._json(payload)
@@ -687,7 +962,7 @@ class _H(http.server.BaseHTTPRequestHandler):
             row.pop('_container', None)
             row.pop('_raw_qty', None)
 
-        tsv = format_rows_for_clipboard(rows)
+        tsv = format_rows_for_clipboard(rows, config)
 
         with _state_lock:
             _state['rows'] = []

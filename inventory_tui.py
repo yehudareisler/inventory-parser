@@ -287,6 +287,30 @@ def get_input(ui):
 
 CLOSED_SET_FIELDS = {'inv_type', 'trans_type', 'vehicle_sub_unit'}
 
+_DEFAULT_FIELD_ORDER = ['date', 'inv_type', 'qty', 'trans_type', 'vehicle_sub_unit', 'batch', 'notes']
+
+_DEFAULT_FIELD_OPTIONS = {
+    'inv_type': 'items',
+    'trans_type': 'transaction_types',
+    'vehicle_sub_unit': 'locations',
+}
+
+
+def get_closed_set_fields(config):
+    """Get set of closed-set field names from config, with fallback."""
+    fo = config.get('field_options', _DEFAULT_FIELD_OPTIONS)
+    return set(fo.keys())
+
+
+def get_field_order(config):
+    """Get display field order from config, with fallback."""
+    return config.get('ui', {}).get('field_order', _DEFAULT_FIELD_ORDER)
+
+
+def get_required_fields(config):
+    """Get list of required field names from config, with fallback."""
+    return config.get('required_fields', ['trans_type', 'vehicle_sub_unit'])
+
 
 def format_date(d):
     if isinstance(d, date):
@@ -302,29 +326,41 @@ def format_qty(q):
     return str(q)
 
 
-def row_has_warning(row):
+def row_has_warning(row, config=None):
+    if config:
+        required = get_required_fields(config)
+        return any(row.get(f) is None for f in required)
     return (row.get('trans_type') is None
             or row.get('vehicle_sub_unit') is None)
 
 
-def _row_to_cells(i, row):
-    warn = '\u26a0 ' if row_has_warning(row) else ''
-    qty_str = format_qty(row.get('qty'))
-    if row.get('_container'):
-        qty_str = f"{qty_str} [{row['_container']}?]"
-    return [
-        f'{warn}{i + 1}',
-        format_date(row.get('date')),
-        row.get('inv_type', '???'),
-        qty_str,
-        row.get('trans_type') or '???',
-        row.get('vehicle_sub_unit') or '???',
-        str(row.get('batch', '')),
-        row.get('notes') or '',
-    ]
+def _format_cell(row, field):
+    if field == 'date':
+        return format_date(row.get('date'))
+    if field == 'qty':
+        qty_str = format_qty(row.get('qty'))
+        if row.get('_container'):
+            qty_str = f"{qty_str} [{row['_container']}?]"
+        return qty_str
+    if field == 'batch':
+        return str(row.get('batch', ''))
+    if field == 'notes':
+        return row.get('notes') or ''
+    # Default: show value or ???
+    val = row.get(field)
+    return val if val is not None else '???'
 
 
-def display_result(rows, notes=None, unparseable=None, ui=None):
+def _row_to_cells(i, row, config=None):
+    warn = '\u26a0 ' if row_has_warning(row, config) else ''
+    field_order = get_field_order(config) if config else _DEFAULT_FIELD_ORDER
+    cells = [f'{warn}{i + 1}']
+    for field in field_order:
+        cells.append(_format_cell(row, field))
+    return cells
+
+
+def display_result(rows, notes=None, unparseable=None, ui=None, config=None):
     """Print the result table, notes, and warnings."""
     if ui is None:
         ui = UIStrings({})
@@ -338,7 +374,7 @@ def display_result(rows, notes=None, unparseable=None, ui=None):
     if rows:
         table = [headers]
         for i, row in enumerate(rows):
-            table.append(_row_to_cells(i, row))
+            table.append(_row_to_cells(i, row, config))
 
         widths = [max(len(r[c]) for r in table) for c in range(len(headers))]
 
@@ -370,7 +406,7 @@ def display_result(rows, notes=None, unparseable=None, ui=None):
 # Clipboard export
 # ============================================================
 
-def format_rows_for_clipboard(rows):
+def format_rows_for_clipboard(rows, config=None):
     """Format confirmed rows as TSV for pasting into Excel/Google Sheets.
 
     Returns a tab-separated string with one line per row (no header).
@@ -379,17 +415,11 @@ def format_rows_for_clipboard(rows):
     if not rows:
         return ''
 
+    field_order = get_field_order(config) if config else _DEFAULT_FIELD_ORDER
+
     lines = []
     for row in rows:
-        cells = [
-            format_date(row.get('date')),
-            row.get('inv_type', '???'),
-            format_qty(row.get('qty')),
-            row.get('trans_type') or '???',
-            row.get('vehicle_sub_unit') or '???',
-            row.get('notes') or '',
-            str(row.get('batch', '')),
-        ]
+        cells = [_format_cell(row, f) for f in field_order]
         lines.append('\t'.join(cells))
 
     return '\n'.join(lines)
@@ -574,6 +604,19 @@ def edit_open_field(field, current_value, ui):
 
 def get_closed_set_options(field, config):
     """Get the list of options for a closed-set field."""
+    field_options = config.get('field_options', _DEFAULT_FIELD_OPTIONS)
+    config_key = field_options.get(field)
+
+    if config_key:
+        options = list(config.get(config_key, []))
+        # For locations, include default_source if not already present
+        if field == 'vehicle_sub_unit':
+            src = config.get('default_source', 'warehouse')
+            if src not in options:
+                options.insert(0, src)
+        return options
+
+    # Legacy fallback
     if field == 'inv_type':
         return config.get('items', [])
     if field == 'trans_type':
@@ -878,7 +921,7 @@ def review_loop(result, raw_text, config):
     field_pattern = re.compile(rf'^(\d+)([{ui._field_code_chars}])$')
 
     while True:
-        display_result(rows, notes, unparseable, ui)
+        display_result(rows, notes, unparseable, ui, config)
 
         if not rows:
             if notes:
@@ -920,9 +963,10 @@ def review_loop(result, raw_text, config):
 
         if cmd == cmd_confirm:
             # Warn about incomplete rows
+            required = get_required_fields(config)
             incomplete = [i + 1 for i, r in enumerate(rows)
-                          if r.get('inv_type') == '???' or r.get('trans_type') is None
-                          or r.get('vehicle_sub_unit') is None]
+                          if r.get('inv_type') == '???'
+                          or any(r.get(f) is None for f in required)]
             if incomplete:
                 row_list = ', '.join(str(n) for n in incomplete)
                 print(ui.s('confirm_incomplete_warning',
@@ -989,7 +1033,7 @@ def review_loop(result, raw_text, config):
             old_value = rows[row_num].get(field)
             old_item_token = rows[row_num].get('inv_type') if field == 'inv_type' else None
 
-            if field in CLOSED_SET_FIELDS:
+            if field in get_closed_set_fields(config):
                 options = get_closed_set_options(field, config)
                 new_value = edit_closed_set(field, options, ui)
             else:
@@ -1124,12 +1168,12 @@ def main(config_path='config_he.yaml'):
         confirmed_notes = outcome.get('notes', [])
 
         if confirmed_rows:
-            tsv = format_rows_for_clipboard(confirmed_rows)
+            tsv = format_rows_for_clipboard(confirmed_rows, config)
             if copy_to_clipboard(tsv):
                 print(ui.s('clipboard_copied', count=len(confirmed_rows)))
             else:
                 print(ui.s('clipboard_failed'))
-                display_result(confirmed_rows, ui=ui)
+                display_result(confirmed_rows, ui=ui, config=config)
                 print(ui.s('confirmed_count', count=len(confirmed_rows)))
 
         if confirmed_notes:
