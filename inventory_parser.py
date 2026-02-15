@@ -10,6 +10,97 @@ from difflib import get_close_matches
 
 
 # ============================================================
+# Resolution (unified matching)
+# ============================================================
+
+_SEP_RE = re.compile(r'[\s_\-]+')
+
+
+def _normalize_separators(s):
+    """Normalize spaces, dashes, and underscores to single spaces."""
+    return _SEP_RE.sub(' ', s).strip().lower()
+
+
+def _resolve(text, candidates, aliases=None, *,
+             normalize_separators=False,
+             try_prefix=False,
+             try_plural=False,
+             cutoff=0.6):
+    """Match text against candidates + optional aliases.
+
+    Returns (canonical_name, match_type) or (None, None).
+    match_type is 'exact', 'alias', 'separator', 'prefix', 'plural', or 'fuzzy'.
+    """
+    text_clean = text.strip()
+    if not text_clean:
+        return None, None
+    text_lower = text_clean.lower()
+
+    # 1. Exact match
+    for c in candidates:
+        if c.lower() == text_lower:
+            return c, 'exact'
+
+    # 2. Exact alias
+    if aliases:
+        for a, target in aliases.items():
+            if a.lower() == text_lower:
+                return target, 'alias'
+
+    # 3. Separator-normalized (space/dash/underscore equivalence)
+    if normalize_separators:
+        text_norm = _normalize_separators(text_clean)
+        for c in candidates:
+            if _normalize_separators(c) == text_norm:
+                return c, 'separator'
+        if aliases:
+            for a, target in aliases.items():
+                if _normalize_separators(a) == text_norm:
+                    return target, 'separator'
+
+    # 4. Plural normalization
+    if try_plural:
+        text_stripped = text_lower.rstrip('s')
+        for c in sorted(candidates, key=len, reverse=True):
+            cl = c.lower()
+            if text_stripped == cl or text_stripped == cl.rstrip('s'):
+                return c, 'plural'
+
+    # 5. Prefix match
+    if try_prefix:
+        for c in sorted(candidates, key=len, reverse=True):
+            if c.lower().startswith(text_lower):
+                return c, 'prefix'
+
+    # 6. Fuzzy match
+    all_targets = [c.lower() for c in candidates]
+    if aliases:
+        all_targets.extend(a.lower() for a in aliases)
+    short_cutoff = max(cutoff, 0.8) if len(text_lower) <= 4 else cutoff
+    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=short_cutoff)
+    if matches:
+        match = matches[0]
+        if aliases:
+            for a, target in aliases.items():
+                if a.lower() == match:
+                    return target, 'fuzzy'
+        for c in candidates:
+            if c.lower() == match:
+                return c, 'fuzzy'
+
+    return None, None
+
+
+def _boundary_pattern(text):
+    """Build a word-boundary regex pattern with separator normalization."""
+    escaped = re.escape(text)
+    pattern = re.sub(r'(\\ |\\-|_)+', lambda m: r'[\s_-]+', escaped)
+    if len(text) <= 2 and not text.isascii():
+        return rf'(?:^|(?<=\s)){pattern}(?=\s|$)'
+    return rf'(?:^|(?<=\s)|(?<=\b)){pattern}(?=\s|$|\b)'
+
+
+# ============================================================
 # Public API
 # ============================================================
 
@@ -20,39 +111,7 @@ def fuzzy_resolve(text, candidates, aliases=None, cutoff=0.6):
     Returns (canonical_name, match_type) where match_type is
     'exact', 'alias', 'fuzzy', or (None, None) if no match.
     """
-    text_lower = text.strip().lower()
-    if not text_lower:
-        return None, None
-
-    # 1. Exact match against candidates
-    for c in candidates:
-        if c.lower() == text_lower:
-            return c, 'exact'
-
-    # 2. Exact alias match
-    if aliases:
-        for a, target in aliases.items():
-            if a.lower() == text_lower:
-                return target, 'alias'
-
-    # 3. Fuzzy match against candidates + alias keys
-    all_targets = [c.lower() for c in candidates]
-    if aliases:
-        all_targets.extend(a.lower() for a in aliases)
-    short_cutoff = max(cutoff, 0.8) if len(text_lower) <= 4 else cutoff
-    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=short_cutoff)
-    if matches:
-        match = matches[0]
-        # Resolve back to canonical
-        if aliases:
-            for a, target in aliases.items():
-                if a.lower() == match:
-                    return target, 'fuzzy'
-        for c in candidates:
-            if c.lower() == match:
-                return c, 'fuzzy'
-
-    return None, None
+    return _resolve(text, candidates, aliases, cutoff=cutoff)
 
 @dataclass
 class ParseResult:
@@ -270,92 +329,70 @@ def _extract_location(text, config):
                     canonical = loc_alias_map.get(loc, loc)
                     return canonical, direction, remaining
     # Fuzzy fallback for multi-char location names
-    # Use higher cutoff — location false positives consume words from text
     multi_char_locs = [l for l in all_locs if len(l) > 2]
     if multi_char_locs:
         words = text.split()
         for i, word in enumerate(words):
-            w = word.strip()
-            if not w or len(w) <= 2:
+            if len(word.strip()) <= 2:
                 continue
-            cutoff = 0.85 if len(w) <= 4 else 0.75
-            matches = get_close_matches(w.lower(),
-                                        [l.lower() for l in multi_char_locs],
-                                        n=1, cutoff=cutoff)
-            if matches:
-                # Resolve back to canonical
-                for loc in multi_char_locs:
-                    if loc.lower() == matches[0]:
-                        canonical = loc_alias_map.get(loc, loc)
-                        remaining = ' '.join(words[:i] + words[i+1:]).strip()
-                        return canonical, 'to', remaining
-                        break
+            match, _ = _resolve(word.strip(), multi_char_locs, cutoff=0.75)
+            if match:
+                canonical = loc_alias_map.get(match, match)
+                remaining = ' '.join(words[:i] + words[i+1:]).strip()
+                return canonical, 'to', remaining
 
     return None, None, text
 
 
 def _extract_verb(text, config):
+    # Build verb map: candidate_text -> trans_type
+    verb_map = {}
     for trans_type, verbs in config.get('action_verbs', {}).items():
-        for verb in sorted(verbs, key=len, reverse=True):
-            pattern = rf'\b{re.escape(verb)}\b'
-            m = re.search(pattern, text, re.IGNORECASE)
-            if m:
-                remaining = (text[:m.start()] + text[m.end():]).strip()
-                return trans_type, remaining
-
-    # Match transaction type names directly (longest first)
-    # Also match dash/space variants (e.g. "warehouse-to-branch" matches "warehouse_to_branch")
+        for v in verbs:
+            verb_map[v] = trans_type
+    tt_list = config.get('transaction_types', [])
+    for tt in tt_list:
+        verb_map[tt] = tt
     aliases = config.get('aliases', {})
-    for tt in sorted(config.get('transaction_types', []), key=len, reverse=True):
-        # Build pattern that treats underscores, dashes, and spaces as interchangeable
-        tt_pattern = re.sub(r'\\-|_', lambda m: r'[\s_-]', re.escape(tt))
-        if len(tt) <= 2 and not tt.isascii():
-            pattern = rf'(?:^|(?<=\s)){tt_pattern}(?=\s|$)'
-        else:
-            pattern = rf'(?:^|(?<=\s)|(?<=\b)){tt_pattern}(?=\s|$|\b)'
+    tt_set = {t.lower() for t in tt_list}
+    for alias_key, alias_target in aliases.items():
+        if alias_target.lower() in tt_set:
+            verb_map[alias_key] = alias_target
+
+    all_keys = list(verb_map.keys())
+
+    # Stage 1: Word-boundary regex search (longest first, separator-normalized)
+    for key in sorted(all_keys, key=len, reverse=True):
+        pattern = _boundary_pattern(key)
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             remaining = (text[:m.start()] + text[m.end():]).strip()
-            return tt, remaining
+            return verb_map[key], remaining
 
-    # Match aliases that point to a transaction type
-    tt_set = {t.lower() for t in config.get('transaction_types', [])}
-    for alias_key, alias_target in sorted(aliases.items(), key=lambda x: len(x[0]), reverse=True):
-        if alias_target.lower() in tt_set:
-            ak_pattern = re.sub(r'\\-|_', lambda m: r'[\s_-]', re.escape(alias_key))
-            if len(alias_key) <= 2 and not alias_key.isascii():
-                pattern = rf'(?:^|(?<=\s)){ak_pattern}(?=\s|$)'
-            else:
-                pattern = rf'(?:^|(?<=\s)|(?<=\b)){ak_pattern}(?=\s|$|\b)'
-            m = re.search(pattern, text, re.IGNORECASE)
-            if m:
-                remaining = (text[:m.start()] + text[m.end():]).strip()
-                return alias_target, remaining
-
-    # Fuzzy fallback: try matching each word against verbs and type names
-    # Use higher cutoff than items — verb false positives are destructive
-    all_verbs = {}  # verb_text -> trans_type
-    for trans_type, verbs in config.get('action_verbs', {}).items():
-        for v in verbs:
-            all_verbs[v.lower()] = trans_type
-    for tt in config.get('transaction_types', []):
-        all_verbs[tt.lower()] = tt
-    for alias_key, alias_target in aliases.items():
-        if alias_target.lower() in tt_set:
-            all_verbs[alias_key.lower()] = alias_target
-
-    if all_verbs:
-        words = text.split()
-        for i, word in enumerate(words):
-            w = word.strip()
-            if not w or len(w) <= 2:
+    # Stage 2: Multi-word spans with separator normalization only
+    # (e.g. "ספק מחסן" matches "ספק - מחסן" — same words, different separator)
+    words = text.split()
+    max_span = min(len(words), 3)
+    for span_len in range(max_span, 1, -1):
+        for start in range(len(words) - span_len + 1):
+            span = ' '.join(words[start:start + span_len]).strip()
+            if len(span) <= 2:
                 continue
-            cutoff = 0.85 if len(w) <= 4 else 0.75
-            matches = get_close_matches(w.lower(), list(all_verbs.keys()),
-                                        n=1, cutoff=cutoff)
-            if matches:
-                remaining = ' '.join(words[:i] + words[i+1:]).strip()
-                return all_verbs[matches[0]], remaining
+            match, mt = _resolve(span, all_keys, normalize_separators=True)
+            if match and mt in ('exact', 'alias', 'separator'):
+                remaining = ' '.join(words[:start] + words[start + span_len:]).strip()
+                return verb_map[match], remaining
+
+    # Stage 3: Single-word fuzzy fallback (handles misspellings)
+    for i, word in enumerate(words):
+        w = word.strip()
+        if len(w) <= 2:
+            continue
+        match, _ = _resolve(w, all_keys,
+                            normalize_separators=True, cutoff=0.75)
+        if match:
+            remaining = ' '.join(words[:i] + words[i+1:]).strip()
+            return verb_map[match], remaining
 
     return None, text
 
@@ -495,8 +532,6 @@ def _match_item(text, config):
 
     items = config.get('items', [])
     aliases = config.get('aliases', {})
-    all_names = {i.lower(): i for i in items}
-    all_aliases = {a.lower(): a for a in aliases}
 
     # 1. Exact substring match against canonical items (longest first)
     for item in sorted(items, key=len, reverse=True):
@@ -508,56 +543,22 @@ def _match_item(text, config):
         if alias.lower() in text_lower:
             return aliases[alias], alias
 
-    # 3. Singular/plural normalization
-    for item in sorted(items, key=len, reverse=True):
-        il = item.lower()
-        tl = text_lower.rstrip('s')
-        if tl == il or tl == il.rstrip('s'):
-            return item, text_clean
+    # 3. Whole text: plural, prefix, then fuzzy (via unified resolver)
+    match, _ = _resolve(text_clean, items, aliases,
+                        try_plural=True, try_prefix=True, cutoff=0.6)
+    if match:
+        return match, text_clean
 
-    # 4. Abbreviation/prefix match
-    for item in sorted(items, key=len, reverse=True):
-        if item.lower().startswith(text_lower):
-            return item, text_clean
-
-    # 5. Fuzzy match (whole text against items + aliases)
-    # Short tokens need higher cutoff to prevent false positives
-    # (e.g. תפוז/orange matching תפוא/potato at 0.75)
-    all_targets = [i.lower() for i in items] + [a.lower() for a in aliases]
-    fuzzy_cutoff = 0.8 if len(text_lower) <= 4 else 0.6
-    matches = get_close_matches(text_lower, all_targets, n=1, cutoff=fuzzy_cutoff)
-    if matches:
-        return _resolve_match(matches[0], items, aliases), text_clean
-
-    # 6. Try word spans (longest to shortest)
+    # 4. Word spans (longest to shortest)
     words = text_lower.split()
     for span_len in range(min(len(words), 4), 0, -1):
         for start in range(len(words) - span_len + 1):
             span = ' '.join(words[start:start + span_len])
-
-            # Exact alias
-            if span in all_aliases:
-                return aliases[all_aliases[span]], span
-            # Exact item
-            if span in all_names:
-                return all_names[span], span
-            # Fuzzy
-            span_cutoff = 0.8 if len(span) <= 4 else 0.6
-            matches = get_close_matches(span, all_targets, n=1, cutoff=span_cutoff)
-            if matches:
-                return _resolve_match(matches[0], items, aliases), span
+            match, _ = _resolve(span, items, aliases, cutoff=0.6)
+            if match:
+                return match, span
 
     return None, None
-
-
-def _resolve_match(match_lower, items, aliases):
-    for alias, canonical in aliases.items():
-        if alias.lower() == match_lower:
-            return canonical
-    for item in items:
-        if item.lower() == match_lower:
-            return item
-    return None
 
 
 # ============================================================

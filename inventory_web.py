@@ -125,6 +125,7 @@ body {
 }
 .btn:hover { background: #333; border-color: #666; }
 .btn-primary { background: #1a4a1a; border-color: #2a6a2a; }
+.btn-parsed { background: #1a3a1a; border-color: #2a5a2a; color: #6a6; cursor: default; }
 .btn-primary:hover { background: #2a5a2a; }
 .btn-danger { background: #4a1a1a; border-color: #6a2a2a; }
 .btn-danger:hover { background: #5a2a2a; }
@@ -367,11 +368,15 @@ function renderButtons() {
     };
 
     if (state.phase === 'idle' || state.phase === 'parsed') {
-        mkBtn(s('review_parse_btn') || 'Parse', 'btn-primary', doParse);
+        const parseLabel = s('review_parse_btn') || 'Parse';
+        const isStale = state.phase === 'parsed' && rawInput.value.trim() !== parsedText;
+        const isParsed = state.phase === 'parsed' && !isStale;
+        const parseCls = isParsed ? 'btn-parsed' : 'btn-primary';
+        const btn = mkBtn(isParsed ? '\u2713 ' + parseLabel : parseLabel, parseCls, doParse);
+        if (isParsed) btn.title = 'Already parsed';
     }
     if (state.phase === 'parsed' && state.rows.length > 0) {
         mkBtn(s('review_confirm_btn') || cmd('confirm'), 'btn-primary', doConfirm);
-        mkBtn(s('review_add_row_btn') || '+', '', doAddRow);
     }
     mkBtn(s('cmd_alias') || 'alias', '', () => showAliasModal());
     mkBtn(s('cmd_convert') || 'convert', '', () => showConvertModal());
@@ -460,19 +465,6 @@ async function doConfirm() {
 }
 
 // ---- Add row ----
-async function doAddRow() {
-    try {
-        const r = await fetch('/api/add-row', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({rows: state.rows})
-        });
-        const d = await r.json();
-        state.rows = d.rows;
-        renderAll();
-    } catch(e) { showError(e); }
-}
-
 // ---- Delete row ----
 async function doDelete(idx) {
     try {
@@ -901,7 +893,6 @@ class _H(http.server.BaseHTTPRequestHandler):
             '/api/confirm': self._handle_confirm,
             '/api/edit': self._handle_edit,
             '/api/delete': self._handle_delete,
-            '/api/add-row': self._handle_add_row,
             '/api/alias': self._handle_alias,
             '/api/conversion': self._handle_conversion,
             '/api/fuzzy': self._handle_fuzzy,
@@ -1071,13 +1062,6 @@ class _H(http.server.BaseHTTPRequestHandler):
             _state['rows'] = rows
 
         self._json({'rows': _serialize_rows(rows), 'warning': warning})
-
-    def _handle_add_row(self, body):
-        rows = _deserialize_rows(body.get('rows', []))
-        rows.append(empty_row())
-        with _state_lock:
-            _state['rows'] = rows
-        self._json({'rows': _serialize_rows(rows)})
 
     def _handle_alias(self, body):
         alias = body.get('alias', '').strip()
