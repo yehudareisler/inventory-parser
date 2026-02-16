@@ -63,7 +63,14 @@ fun MainScreen(
             // Input field — compact height so results are visible below
             OutlinedTextField(
                 value = state.inputText,
-                onValueChange = { viewModel.updateInput(it) },
+                onValueChange = { newText ->
+                    viewModel.updateInput(newText)
+                    // Auto-parse when user presses Enter (newline at end)
+                    if (newText.endsWith("\n") && newText.trimEnd().isNotBlank()) {
+                        viewModel.updateInput(newText.trimEnd('\n'))
+                        viewModel.parse()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 100.dp, max = 200.dp),
