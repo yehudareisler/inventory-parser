@@ -22,31 +22,43 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Check signing secrets
+        id: signing
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Decode keystore
-        if: env.KEYSTORE_BASE64 != ''
+        if: steps.signing.outputs.available == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
 
-      - name: Build release APK
+      - name: Build signed release APK
+        if: steps.signing.outputs.available == 'true'
         working-directory: android
         env:
-          KEYSTORE_FILE: ${{ secrets.KEYSTORE_BASE64 != '' && 'release.keystore' || '' }}
+          KEYSTORE_FILE: release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
-      - name: Build debug APK (fallback if no signing)
-        if: env.KEYSTORE_BASE64 == ''
+      - name: Build debug APK
+        if: steps.signing.outputs.available != 'true'
         working-directory: android
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: ./gradlew assembleDebug
 
-      - name: Compute SHA-256
+      - name: Find APK and compute SHA-256
         run: |
-          APK=$(find android/app/build/outputs/apk -name "*.apk" | head -1)
+          if [ "${{ steps.signing.outputs.available }}" = "true" ]; then
+            APK="android/app/build/outputs/apk/release/app-release.apk"
+          else
+            APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          fi
           sha256sum "$APK" > checksum.txt
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
