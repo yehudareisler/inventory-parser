@@ -3,7 +3,7 @@ __pycache__/
 *.pyo
 
 # Google Sheets credentials (never commit)
-client_secret.json
+client_secret*.json
 token.json
 service_account.json
 authorized_user.json
