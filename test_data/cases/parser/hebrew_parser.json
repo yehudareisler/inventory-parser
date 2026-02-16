@@ -1,0 +1,294 @@
+{
+  "group": "hebrew_parser",
+  "config": "standard_he",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_simple_consumption",
+      "input": "נאכל ב-ל 15.3.25\n2 קופסה קטנה עגבניות שרי\n4 מלפפונים",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15",
+          "inv_type": "עגבניות שרי",
+          "qty": 1980,
+          "trans_type": "נאכל",
+          "vehicle_sub_unit": "ל",
+          "batch": 1
+        },
+        {
+          "inv_type": "מלפפונים",
+          "qty": 4,
+          "trans_type": "נאכל",
+          "vehicle_sub_unit": "ל"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_transfer_with_math",
+      "input": "העבירו 2x17 נודלס ספגטי ל-ל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "ספגטי",
+          "qty": -34,
+          "trans_type": "מחסן_לסניף",
+          "vehicle_sub_unit": "מחסן",
+          "batch": 1
+        },
+        {
+          "inv_type": "ספגטי",
+          "qty": 34,
+          "trans_type": "מחסן_לסניף",
+          "vehicle_sub_unit": "ל"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_multiple_destinations",
+      "input": "8 קופסה תפו\"א קטנים ל-כ\n7 קופסה תפוחי אדמה קטנים ל-ל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "תפוחי אדמה קטנים",
+          "qty": -7360,
+          "vehicle_sub_unit": "מחסן",
+          "batch": 1
+        },
+        {
+          "qty": 7360,
+          "vehicle_sub_unit": "כ",
+          "batch": 1
+        },
+        {
+          "qty": -6440,
+          "vehicle_sub_unit": "מחסן",
+          "batch": 2
+        },
+        {
+          "qty": 6440,
+          "vehicle_sub_unit": "ל",
+          "batch": 2
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4
+      }
+    },
+    {
+      "name": "test_unparseable_numbers",
+      "input": "4 82 95 3 1",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "unparseable_count_gt": 0
+      }
+    },
+    {
+      "name": "test_communication_note",
+      "input": "רימון ל-נ דרך נאור בטלפון",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "notes_count": 1,
+        "notes_contains": {
+          "0": "רימון"
+        }
+      }
+    },
+    {
+      "name": "test_destination_changes_mid_list",
+      "input": "3 מלפפונים ל-ל\n2 ספגטי\n5 עגבניות שרי ל-כ\n1 תפוחי אדמה קטנים",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "מלפפונים",
+          "qty": -3,
+          "vehicle_sub_unit": "מחסן"
+        },
+        {
+          "qty": 3,
+          "vehicle_sub_unit": "ל",
+          "batch": 1
+        },
+        {
+          "inv_type": "ספגטי"
+        },
+        {
+          "vehicle_sub_unit": "ל",
+          "batch": 1
+        },
+        {
+          "inv_type": "עגבניות שרי"
+        },
+        {
+          "vehicle_sub_unit": "כ",
+          "batch": 2
+        },
+        {
+          "inv_type": "תפוחי אדמה קטנים"
+        },
+        {
+          "vehicle_sub_unit": "כ",
+          "batch": 2
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 8
+      }
+    },
+    {
+      "name": "test_no_context_list",
+      "input": "4 פרוט לופס\n189 קורנפלקס\n3 קקאו פאפס\n1 טריקס",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "פרוט לופס",
+          "qty": 4,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "קורנפלקס",
+          "qty": 189,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "קקאו פאפס",
+          "qty": 3,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "טריקס",
+          "qty": 1,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4
+      }
+    },
+    {
+      "name": "test_multi_date_consumption",
+      "input": "נאכל ב-ל 15.3.25\n2 קופסה קטנה עגבניות שרי\n4 מלפפונים\n\nנאכלו ב-ל 16.3.25\n1980 עגבניות שרי\n4 מלפפונים",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15",
+          "inv_type": "עגבניות שרי",
+          "qty": 1980,
+          "trans_type": "נאכל",
+          "batch": 1
+        },
+        {
+          "inv_type": "מלפפונים",
+          "qty": 4,
+          "batch": 1
+        },
+        {
+          "date": "2025-03-16",
+          "inv_type": "עגבניות שרי",
+          "qty": 1980,
+          "batch": 2
+        },
+        {
+          "inv_type": "מלפפונים",
+          "qty": 4,
+          "batch": 2
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4
+      }
+    },
+    {
+      "name": "test_no_separator_location",
+      "input": "3 מלפפונים לל",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "vehicle_sub_unit": "ל",
+          "qty": 3
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_mixed_parse_context_alias_unparseable",
+      "input": "3 תפוח אדמה\n2 תפוז\nעגבניה\nלכ 150226",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "תפוחי אדמה קטנים",
+          "qty": -3
+        },
+        {
+          "inv_type": "תפוחי אדמה קטנים",
+          "qty": 3,
+          "vehicle_sub_unit": "כ",
+          "date": "2026-02-15"
+        },
+        {
+          "inv_type": "עגבניות שרי",
+          "qty": -1
+        },
+        {
+          "inv_type": "עגבניות שרי",
+          "qty": 1,
+          "vehicle_sub_unit": "כ",
+          "date": "2026-02-15"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "no_unparseable_contains": "לכ 150226",
+        "unparseable_contains": {
+          "0": "2 תפוז"
+        }
+      }
+    }
+  ]
+}

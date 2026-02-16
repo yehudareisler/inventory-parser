@@ -1,0 +1,123 @@
+{
+  "group": "item_matching",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_substring_disambiguation_longest_wins",
+      "input": "4 sweet cherry tomatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "sweet cherry tomatoes"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_shorter_substring_exact",
+      "input": "4 cherry tomatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cherry tomatoes"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_case_insensitive_matching",
+      "input": "4 CUCUMBERS to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_mixed_case_matching",
+      "input": "4 CuCuMbErS to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_singular_matches_plural_canonical",
+      "input": "4 cucumber to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_extra_s_fuzzy_matches",
+      "input": "4 cucumberss to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_completely_unknown_item_goes_to_unparseable",
+      "input": "4 flibbertigibbet to L",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "unparseable_count": 1
+      }
+    },
+    {
+      "name": "test_short_prefix_matches",
+      "input": "4 small to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "small potatoes"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_embedded_item_in_longer_text",
+      "input": "4 fresh cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

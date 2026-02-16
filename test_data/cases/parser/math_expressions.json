@@ -1,0 +1,49 @@
+{
+  "group": "math_expressions",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_unicode_multiply_sign",
+      "input": "2\u00d717 spaghetti to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 34
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_math_with_spaces",
+      "input": "2 x 17 spaghetti to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 34
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_asterisk_multiplication",
+      "input": "11*920 spaghetti to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 10120
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

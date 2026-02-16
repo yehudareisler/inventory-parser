@@ -1,0 +1,74 @@
+{
+  "group": "fuzzy_verb_matching",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_fuzzy_verb_match",
+      "input": "deliverd 12 cucumbers to L",
+      "config_overrides": {
+        "action_verbs": {
+          "warehouse_to_branch": ["delivered", "passed"],
+          "eaten": ["consumed"]
+        }
+      },
+      "expected_rows": [
+        {
+          "trans_type": "warehouse_to_branch"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_exact_verb_takes_priority",
+      "input": "delivered 12 cucumbers to L",
+      "config_overrides": {
+        "action_verbs": {
+          "warehouse_to_branch": ["delivered"]
+        }
+      },
+      "expected_rows": [
+        {
+          "trans_type": "warehouse_to_branch"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_short_verb_not_fuzzy",
+      "input": "12 cucumbers at L",
+      "config_overrides": {
+        "action_verbs": {
+          "eaten": ["ate"]
+        }
+      },
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_fuzzy_type_name_match",
+      "input": "12 cucumbers warehouse_to_branc to L",
+      "config_overrides": {
+        "transaction_types": ["warehouse_to_branch", "supplier_to_warehouse", "eaten"]
+      },
+      "expected_rows": [
+        {
+          "trans_type": "warehouse_to_branch"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

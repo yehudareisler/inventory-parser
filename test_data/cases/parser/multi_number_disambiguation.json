@@ -1,0 +1,70 @@
+{
+  "group": "multi_number_disambiguation",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_disambiguation_finds_item",
+      "input": "100 555 gadget",
+      "config_overrides": {
+        "items_add": ["gadget 555"]
+      },
+      "expected_rows": [
+        {
+          "qty": 100,
+          "inv_type": "gadget 555"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_disambiguation_swaps_qty",
+      "input": "50 widget 88",
+      "config_overrides": {
+        "items_add": ["widget 88"]
+      },
+      "expected_rows": [
+        {
+          "inv_type": "widget 88",
+          "qty": 50
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_no_item_retries_other_numbers",
+      "input": "200 titanium rod",
+      "config_overrides": {
+        "items_add": ["titanium rod"],
+        "aliases": {}
+      },
+      "expected_rows": [
+        {
+          "inv_type": "titanium rod",
+          "qty": 200
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_single_number_unchanged",
+      "input": "12 cucumbers",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": 12,
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

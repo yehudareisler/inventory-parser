@@ -225,6 +225,8 @@ ui:
     help_locations_header: 'מיקומים מוכרים:'
     review_parse_btn: 'נתח'
     review_confirm_btn: 'אשר'
+    sheet_btn: 'לגיליון'
+    clipboard_btn: 'העתק'
     review_add_row_btn: '+ שורה'
 unit_conversions:
   עגבניות שרי:

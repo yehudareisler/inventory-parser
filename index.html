@@ -310,7 +310,8 @@ function renderButtons() {
         if (isParsed) btn.title = 'Already parsed';
     }
     if (state.phase === 'parsed' && state.rows.length > 0) {
-        mkBtn(s('review_confirm_btn') || cmd('confirm'), 'btn-primary', doConfirm);
+        mkBtn(s('sheet_btn') || 'Sheet', 'btn-primary', doSheet);
+        mkBtn(s('clipboard_btn') || 'Clipboard', '', doClipboard);
     }
     mkBtn(s('cmd_alias') || 'alias', '', () => showAliasModal());
     mkBtn(s('cmd_convert') || 'convert', '', () => showConvertModal());
@@ -339,9 +340,9 @@ async function doParse() {
     } catch(e) { showError('Parse failed: ' + e); }
 }
 
-// ---- Confirm (B1: incomplete warning) ----
-async function doConfirm() {
-    if (!state.rows.length) return;
+// ---- Pre-confirm: incomplete check + conversion prompts ----
+async function preConfirm() {
+    if (!state.rows.length) return false;
 
     // B1: Check for incomplete fields before confirming
     const incomplete = getIncompleteRows();
@@ -352,99 +353,124 @@ async function doConfirm() {
             yes: cmd('yes'),
             no: cmd('no')
         });
-        if (!confirm(msg)) return;
+        if (!confirm(msg)) return false;
     }
 
-    try {
-        // Prompt for unknown conversions BEFORE confirming
-        const seen = new Set();
-        for (let ri = 0; ri < state.rows.length; ri++) {
-            const row = state.rows[ri];
-            if (!row._container || row.inv_type === '???') continue;
-            const key = row.inv_type + '|' + row._container;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            // Check if conversion is already known
-            const convs = (cfg.unit_conversions || {})[row.inv_type] || {};
-            if (convs[row._container] != null) continue;
+    // Prompt for unknown conversions BEFORE confirming
+    const seen = new Set();
+    for (let ri = 0; ri < state.rows.length; ri++) {
+        const row = state.rows[ri];
+        if (!row._container || row.inv_type === '???') continue;
+        const key = row.inv_type + '|' + row._container;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const convs = (cfg.unit_conversions || {})[row.inv_type] || {};
+        if (convs[row._container] != null) continue;
 
-            const factor = await new Promise(resolve => {
-                const { overlay, modal } = createModal(s('save_conversion_prompt', {item: row.inv_type, container: row._container}));
-                const factorInp = addInput(modal, s('convert_factor_prompt', {container: row._container}), 'modal-preconfirm-factor', 'number');
-                addButtons(modal, overlay, async (ov) => {
-                    const f = factorInp.value.trim();
-                    ov.remove();
-                    resolve(f && !isNaN(parseFloat(f)) ? parseFloat(f) : null);
-                });
-                const skipBtn = modal.querySelector('.modal-buttons .btn:not(.btn-primary)');
-                if (skipBtn) {
-                    const origClick = skipBtn.onclick;
-                    skipBtn.onclick = () => { origClick(); resolve(null); };
-                }
-                factorInp.focus();
+        const factor = await new Promise(resolve => {
+            const { overlay, modal } = createModal(s('save_conversion_prompt', {item: row.inv_type, container: row._container}));
+            const factorInp = addInput(modal, s('convert_factor_prompt', {container: row._container}), 'modal-preconfirm-factor', 'number');
+            addButtons(modal, overlay, async (ov) => {
+                const f = factorInp.value.trim();
+                ov.remove();
+                resolve(f && !isNaN(parseFloat(f)) ? parseFloat(f) : null);
             });
+            const skipBtn = modal.querySelector('.modal-buttons .btn:not(.btn-primary)');
+            if (skipBtn) {
+                const origClick = skipBtn.onclick;
+                skipBtn.onclick = () => { origClick(); resolve(null); };
+            }
+            factorInp.focus();
+        });
 
-            if (factor) {
-                // Save the conversion
-                await fetch('/api/conversion', {
+        if (factor) {
+            await fetch('/api/conversion', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({item: row.inv_type, container: row._container, factor})
+            });
+            for (let j = 0; j < state.rows.length; j++) {
+                const r = state.rows[j];
+                if (r.inv_type === row.inv_type && r._container === row._container) {
+                    const rawQty = r._raw_qty != null ? r._raw_qty : r.qty;
+                    state.rows[j].qty = rawQty * factor;
+                    state.rows[j]._container = null;
+                    state.rows[j]._raw_qty = null;
+                }
+            }
+            await loadConfig();
+        }
+    }
+    return true;
+}
+
+async function handleAliasLearning(d) {
+    if (d.alias_prompts && d.alias_prompts.length) {
+        for (const [orig, canon] of d.alias_prompts) {
+            if (confirm(s('save_alias_prompt', {original: orig, canonical: canon, yes: cmd('yes'), no: cmd('no')}))) {
+                await fetch('/api/alias', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({item: row.inv_type, container: row._container, factor})
+                    body: JSON.stringify({alias: orig, target: canon})
                 });
-                // Apply to ALL rows with same item+container
-                for (let j = 0; j < state.rows.length; j++) {
-                    const r = state.rows[j];
-                    if (r.inv_type === row.inv_type && r._container === row._container) {
-                        const rawQty = r._raw_qty != null ? r._raw_qty : r.qty;
-                        state.rows[j].qty = rawQty * factor;
-                        state.rows[j]._container = null;
-                        state.rows[j]._raw_qty = null;
-                    }
-                }
-                await loadConfig();
             }
         }
+    }
+}
 
+function resetState() {
+    state.rows = [];
+    state.notes = [];
+    state.unparseable = [];
+    state.phase = 'idle';
+    parsedText = '';
+    rawInput.value = '';
+    loadConfig();
+    renderAll();
+}
+
+// ---- Write to Sheet ----
+async function doSheet() {
+    if (!await preConfirm()) return;
+    try {
         const r = await fetch('/api/confirm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({rows: state.rows})
+            body: JSON.stringify({rows: state.rows, target: 'sheet'})
+        });
+        const d = await r.json();
+        let statusMsg;
+        if (d.sheets_error) {
+            statusMsg = '\u26a0 Sheet: ' + d.sheets_error;
+        } else if (d.sheets_count > 0) {
+            statusMsg = d.sheets_count + ' rows \u2192 sheet';
+        } else {
+            statusMsg = d.count + ' rows confirmed (no sheet configured)';
+        }
+        showStatus(statusMsg);
+        await handleAliasLearning(d);
+        resetState();
+    } catch(e) { showError('Sheet write failed: ' + e); }
+}
+
+// ---- Copy to Clipboard ----
+async function doClipboard() {
+    if (!await preConfirm()) return;
+    try {
+        const r = await fetch('/api/confirm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rows: state.rows, target: 'clipboard'})
         });
         const d = await r.json();
         if (d.clip) {
             try { await navigator.clipboard.writeText(d.clip); }
             catch(e) { console.warn('clipboard failed', e); }
         }
-        let statusMsg = s('clipboard_copied', {count: String(d.count)}) || d.count + ' rows copied';
-        if (d.sheets_error) {
-            statusMsg += ' | \u26a0 Sheet: ' + d.sheets_error;
-        } else if (d.sheets_count > 0) {
-            statusMsg += ' + ' + d.sheets_count + ' to sheet';
-        }
-        showStatus(statusMsg);
-
-        // Alias learning
-        if (d.alias_prompts && d.alias_prompts.length) {
-            for (const [orig, canon] of d.alias_prompts) {
-                if (confirm(s('save_alias_prompt', {original: orig, canonical: canon, yes: cmd('yes'), no: cmd('no')}))) {
-                    await fetch('/api/alias', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({alias: orig, target: canon})
-                    });
-                }
-            }
-        }
-
-        state.rows = [];
-        state.notes = [];
-        state.unparseable = [];
-        state.phase = 'idle';
-        parsedText = '';
-        rawInput.value = '';
-        await loadConfig();
-        renderAll();
-    } catch(e) { showError('Confirm failed: ' + e); }
+        showStatus(s('clipboard_copied', {count: String(d.count)}) || d.count + ' rows copied');
+        await handleAliasLearning(d);
+        resetState();
+    } catch(e) { showError('Clipboard failed: ' + e); }
 }
 
 // ---- Add row ----

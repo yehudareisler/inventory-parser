@@ -1,0 +1,109 @@
+{
+  "group": "context_broadcasting",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_backward_fill_from_end",
+      "input": "4 cucumbers\n3 spaghetti\nto L",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4
+      }
+    },
+    {
+      "name": "test_three_destinations_three_batches",
+      "input": "3 cucumbers to L\n2 spaghetti to C\n1 chicken to N",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "batch": 1
+        },
+        {},
+        {
+          "batch": 2
+        },
+        {},
+        {
+          "batch": 3
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 6
+      }
+    },
+    {
+      "name": "test_date_change_increments_batch",
+      "input": "15.3.25 4 cucumbers to L\n16.3.25 3 spaghetti to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "batch": 1,
+          "date": "2025-03-15"
+        },
+        {},
+        {
+          "batch": 2,
+          "date": "2025-03-16"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_verb_changes_mid_message",
+      "input": "eaten by L\n4 cucumbers\npassed 3 spaghetti to C",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L"
+        },
+        {
+          "trans_type": "warehouse_to_branch"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_blank_lines_dont_break_context",
+      "input": "eaten by L 15.3.25\n4 cucumbers\n\n\n3 spaghetti",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2,
+        "all_rows_have": {
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L",
+          "date": "2025-03-15"
+        }
+      }
+    },
+    {
+      "name": "test_verb_only_line_applies_to_previous",
+      "input": "4 cucumbers to L\neaten",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    }
+  ]
+}

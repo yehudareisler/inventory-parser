@@ -1,0 +1,50 @@
+{
+  "group": "fuzzy_location_matching",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_fuzzy_location_match",
+      "input": "12 cucumbers downtow",
+      "config_inline": {
+        "items": ["cucumbers"],
+        "locations": ["downtown", "uptown"],
+        "default_source": "warehouse",
+        "action_verbs": {},
+        "prepositions": {
+          "to": ["to"]
+        },
+        "aliases": {}
+      },
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "any_row_has": {
+          "vehicle_sub_unit": "downtown"
+        }
+      }
+    },
+    {
+      "name": "test_short_location_not_fuzzy",
+      "input": "12 cucumbers M",
+      "config_inline": {
+        "items": ["cucumbers"],
+        "locations": ["L", "C"],
+        "default_source": "warehouse",
+        "action_verbs": {},
+        "prepositions": {
+          "to": ["to"]
+        },
+        "aliases": {}
+      },
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "field_not_equal": {
+          "0.vehicle_sub_unit": "L"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "group": "input_boundaries",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_empty_string",
+      "input": "",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_whitespace_only",
+      "input": "   \n  \n  ",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_single_number_no_item",
+      "input": "42",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "unparseable_count": 1
+      }
+    },
+    {
+      "name": "test_single_item_no_qty_defaults_to_one",
+      "input": "cucumbers",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers",
+          "qty": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_just_a_location",
+      "input": "to L",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0
+      }
+    },
+    {
+      "name": "test_just_a_verb",
+      "input": "eaten",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0
+      }
+    },
+    {
+      "name": "test_just_a_date",
+      "input": "15.3.25",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "unparseable_count": 1
+      }
+    },
+    {
+      "name": "test_leading_minus_stripped",
+      "input": "-5 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": -5
+        },
+        {
+          "qty": 5
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_leading_plus_stripped",
+      "input": "+ 3 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 3
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_very_large_quantity",
+      "input": "999999 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 999999
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_special_characters_in_text",
+      "input": "4 cucumbers (fresh) to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    }
+  ]
+}

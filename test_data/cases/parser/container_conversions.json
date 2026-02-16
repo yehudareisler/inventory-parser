@@ -1,0 +1,66 @@
+{
+  "group": "container_conversions",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_container_singular",
+      "input": "1 box cherry tomatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 1980
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_container_plural",
+      "input": "2 boxes cherry tomatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 3960
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_no_conversion_factor_keeps_raw_qty",
+      "input": "4 boxes cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "abs_qty": {
+          "0": 4
+        }
+      }
+    },
+    {
+      "name": "test_half_without_container_not_fractional",
+      "input": "half cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "qty": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

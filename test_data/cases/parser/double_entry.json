@@ -1,0 +1,97 @@
+{
+  "group": "double_entry",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_transfer_sums_to_zero",
+      "input": "passed 34 spaghetti to L\npassed 10 cucumbers to C",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "batch_sum_zero": [1, 2]
+      }
+    },
+    {
+      "name": "test_eaten_is_single_row_positive",
+      "input": "eaten by L\n4 cucumbers",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": 4,
+          "trans_type": "eaten"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_supplier_delivery_single_row",
+      "input": "11*920\nsmalal potatoes\nthat's what got from Ran Serah",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": 10120,
+          "vehicle_sub_unit": "warehouse"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_same_item_different_destinations_separate_batches",
+      "input": "4 cucumbers to L\n3 cucumbers to C",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "batch_sum_zero": [1, 2]
+      }
+    },
+    {
+      "name": "test_zero_qty_transfer",
+      "input": "0 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": 0
+        },
+        {
+          "qty": 0
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_warehouse_receiving_positive",
+      "input": "+ 3 boxes of small potatoes gathered into the warehouse",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "warehouse"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1,
+        "qty_gt": {
+          "0": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,379 @@
+{
+  "group": "hebrew_prepositions",
+  "config": "standard_he",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_standalone_location_header",
+      "input": "לכ\n12 עגבניה\n6 מלפפון",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "עגבניות שרי",
+          "qty": -12,
+          "vehicle_sub_unit": "מחסן"
+        },
+        {
+          "qty": 12,
+          "vehicle_sub_unit": "כ"
+        },
+        {
+          "inv_type": "מלפפונים",
+          "qty": -6
+        },
+        {
+          "qty": 6,
+          "vehicle_sub_unit": "כ"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_standalone_location_lamed",
+      "input": "לל\n4 מלפפונים",
+      "config_overrides": {},
+      "expected_rows": [
+        {},
+        {
+          "vehicle_sub_unit": "ל"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_from_prefix_basic",
+      "input": "12 מלפפונים מכ",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": -12,
+          "vehicle_sub_unit": "כ"
+        },
+        {
+          "qty": 12,
+          "vehicle_sub_unit": "מחסן"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_from_prefix_to_lamed",
+      "input": "6 ספגטי מל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": -6,
+          "vehicle_sub_unit": "ל"
+        },
+        {
+          "qty": 6,
+          "vehicle_sub_unit": "מחסן"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_from_prefix_with_hyphen",
+      "input": "8 ספגטי מ-כ",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "כ",
+          "qty": -8
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 8
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_from_header_broadcasts",
+      "input": "מכ\n10 מלפפונים\n5 ספגטי",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "כ",
+          "qty": -10
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 10
+        },
+        {
+          "vehicle_sub_unit": "כ",
+          "qty": -5
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 5
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_to_and_from_same_message",
+      "input": "12 מלפפונים לכ\n6 ספגטי מנ",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "qty": -12,
+          "vehicle_sub_unit": "מחסן"
+        },
+        {
+          "qty": 12,
+          "vehicle_sub_unit": "כ"
+        },
+        {
+          "qty": -6,
+          "vehicle_sub_unit": "נ"
+        },
+        {
+          "qty": 6,
+          "vehicle_sub_unit": "מחסן"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4
+      }
+    },
+    {
+      "name": "test_mem_preposition_doesnt_match_item_names",
+      "input": "12 מלפפונים",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "מלפפונים",
+          "qty": 12,
+          "vehicle_sub_unit": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_mem_as_location__to_mem",
+      "config_inline": {
+        "items": ["מלפפונים", "ספגטי"],
+        "aliases": {},
+        "locations": ["ל", "כ", "נ", "מ"],
+        "default_source": "מחסן",
+        "transaction_types": ["מחסן_לסניף"],
+        "action_verbs": {},
+        "unit_conversions": {},
+        "prepositions": {
+          "to": ["ל"],
+          "by": ["ב"],
+          "from": ["מ"]
+        },
+        "from_words": ["מאת"],
+        "filler_words": [],
+        "non_zero_sum_types": [],
+        "default_transfer_type": "מחסן_לסניף"
+      },
+      "input": "12 ספגטי למ",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": -12
+        },
+        {
+          "vehicle_sub_unit": "מ",
+          "qty": 12
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_mem_as_location__from_mem",
+      "config_inline": {
+        "items": ["מלפפונים", "ספגטי"],
+        "aliases": {},
+        "locations": ["ל", "כ", "נ", "מ"],
+        "default_source": "מחסן",
+        "transaction_types": ["מחסן_לסניף"],
+        "action_verbs": {},
+        "unit_conversions": {},
+        "prepositions": {
+          "to": ["ל"],
+          "by": ["ב"],
+          "from": ["מ"]
+        },
+        "from_words": ["מאת"],
+        "filler_words": [],
+        "non_zero_sum_types": [],
+        "default_transfer_type": "מחסן_לסניף"
+      },
+      "input": "6 ספגטי ממ",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "מ",
+          "qty": -6
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 6
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_mem_as_location__from_lamed",
+      "config_inline": {
+        "items": ["מלפפונים", "ספגטי"],
+        "aliases": {},
+        "locations": ["ל", "כ", "נ", "מ"],
+        "default_source": "מחסן",
+        "transaction_types": ["מחסן_לסניף"],
+        "action_verbs": {},
+        "unit_conversions": {},
+        "prepositions": {
+          "to": ["ל"],
+          "by": ["ב"],
+          "from": ["מ"]
+        },
+        "from_words": ["מאת"],
+        "filler_words": [],
+        "non_zero_sum_types": [],
+        "default_transfer_type": "מחסן_לסניף"
+      },
+      "input": "8 ספגטי מל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "ל",
+          "qty": -8
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 8
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_lamed_as_location_and_preposition__to_lamed",
+      "config_inline": {
+        "items": ["מלפפונים"],
+        "aliases": {},
+        "locations": ["ל", "כ"],
+        "default_source": "מחסן",
+        "transaction_types": ["מחסן_לסניף"],
+        "action_verbs": {},
+        "unit_conversions": {},
+        "prepositions": {
+          "to": ["ל"],
+          "from": ["מ"]
+        },
+        "from_words": ["מאת"],
+        "filler_words": [],
+        "non_zero_sum_types": [],
+        "default_transfer_type": "מחסן_לסניף"
+      },
+      "input": "4 מלפפונים לל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": -4
+        },
+        {
+          "vehicle_sub_unit": "ל",
+          "qty": 4
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_lamed_as_location_and_preposition__from_lamed",
+      "config_inline": {
+        "items": ["מלפפונים"],
+        "aliases": {},
+        "locations": ["ל", "כ"],
+        "default_source": "מחסן",
+        "transaction_types": ["מחסן_לסניף"],
+        "action_verbs": {},
+        "unit_conversions": {},
+        "prepositions": {
+          "to": ["ל"],
+          "from": ["מ"]
+        },
+        "from_words": ["מאת"],
+        "filler_words": [],
+        "non_zero_sum_types": [],
+        "default_transfer_type": "מחסן_לסניף"
+      },
+      "input": "4 מלפפונים מל",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "ל",
+          "qty": -4
+        },
+        {
+          "vehicle_sub_unit": "מחסן",
+          "qty": 4
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    }
+  ]
+}

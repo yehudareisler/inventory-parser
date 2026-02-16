@@ -1,0 +1,51 @@
+{
+  "group": "multi_line_merging",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_qty_line_then_item_line_merged",
+      "input": "20\ncucumbers",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers",
+          "qty": 20
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_two_qty_lines_then_item",
+      "input": "10\n20\ncucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "any_row_has": {
+          "inv_type": "cucumbers",
+          "qty": 20
+        }
+      }
+    },
+    {
+      "name": "test_qty_with_unmatched_text_no_merge",
+      "input": "4 flibbert\ncucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "unparseable_count": 1,
+        "any_row_has": {
+          "inv_type": "cucumbers"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+    "id": "standard_en",
+    "items": [
+        "cherry tomatoes",
+        "sweet cherry tomatoes",
+        "small potatoes",
+        "spaghetti",
+        "cucumbers",
+        "chicken",
+        "carrots",
+        "aluminum pans",
+        "froot loops",
+        "cornflakes",
+        "cheerios",
+        "cocoa puffs",
+        "trix"
+    ],
+    "aliases": {
+        "small pot": "small potatoes",
+        "cherry tom": "cherry tomatoes",
+        "spaghetti noodles": "spaghetti",
+        "spuds": "small potatoes"
+    },
+    "locations": ["L", "C", "N"],
+    "default_source": "warehouse",
+    "transaction_types": [],
+    "action_verbs": {
+        "warehouse_to_branch": ["passed", "gave", "sent", "delivered"],
+        "supplier_to_warehouse": ["received", "got"],
+        "eaten": ["eaten", "consumed", "used"]
+    },
+    "unit_conversions": {
+        "cherry tomatoes": {
+            "base_unit": "count",
+            "small box": 990,
+            "box": 1980
+        },
+        "sweet cherry tomatoes": {
+            "base_unit": "count",
+            "small box": 990,
+            "box": 1980
+        },
+        "small potatoes": {
+            "base_unit": "count",
+            "box": 920
+        }
+    },
+    "prepositions": {
+        "to": ["to", "into"],
+        "by": ["by"],
+        "from": ["from"]
+    },
+    "from_words": ["from"],
+    "filler_words": ["\\bthat's\\b", "\\bwhat\\b", "\\bthe\\b", "\\bof\\b", "\\ba\\b", "\\ban\\b", "\\bsome\\b", "\\bvia\\b"],
+    "non_zero_sum_types": ["eaten", "starting_point", "recount", "supplier_to_warehouse"],
+    "default_transfer_type": "warehouse_to_branch"
+}

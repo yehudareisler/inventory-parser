@@ -1,0 +1,84 @@
+{
+  "group": "direct_transaction_type",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_direct_type_name",
+      "input": "12 cucumbers supplier_to_warehouse",
+      "config_overrides": {
+        "transaction_types": ["warehouse_to_branch", "supplier_to_warehouse", "eaten"]
+      },
+      "expected_rows": [
+        {
+          "trans_type": "supplier_to_warehouse",
+          "qty": 12
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_direct_type_doesnt_override_verb",
+      "input": "received 12 cucumbers",
+      "config_overrides": {
+        "transaction_types": ["warehouse_to_branch", "supplier_to_warehouse", "eaten"]
+      },
+      "expected_rows": [
+        {
+          "trans_type": "supplier_to_warehouse"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_type_alias",
+      "input": "12 cucumbers supplier",
+      "config_overrides": {
+        "transaction_types": ["warehouse_to_branch", "supplier_to_warehouse", "eaten"],
+        "aliases_add": {
+          "supplier": "supplier_to_warehouse"
+        }
+      },
+      "expected_rows": [
+        {
+          "trans_type": "supplier_to_warehouse"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_hebrew_direct_type",
+      "input": "12 \u05de\u05dc\u05e4\u05e4\u05d5\u05e0\u05d9\u05dd \u05e1\u05e4\u05e7_\u05dc\u05de\u05d7\u05e1\u05df",
+      "config_inline": {
+        "items": ["\u05de\u05dc\u05e4\u05e4\u05d5\u05e0\u05d9\u05dd"],
+        "locations": ["\u05dc"],
+        "default_source": "\u05de\u05d7\u05e1\u05df",
+        "transaction_types": ["\u05de\u05d7\u05e1\u05df_\u05dc\u05e1\u05e0\u05d9\u05e3", "\u05e1\u05e4\u05e7_\u05dc\u05de\u05d7\u05e1\u05df", "\u05e0\u05d0\u05db\u05dc"],
+        "action_verbs": {
+          "\u05de\u05d7\u05e1\u05df_\u05dc\u05e1\u05e0\u05d9\u05e3": ["\u05d4\u05e2\u05d1\u05d9\u05e8"],
+          "\u05e1\u05e4\u05e7_\u05dc\u05de\u05d7\u05e1\u05df": ["\u05e7\u05d9\u05d1\u05dc"]
+        },
+        "prepositions": {
+          "to": ["\u05dc"],
+          "by": ["\u05d1"],
+          "from": ["\u05de"]
+        },
+        "aliases": {}
+      },
+      "expected_rows": [
+        {
+          "trans_type": "\u05e1\u05e4\u05e7_\u05dc\u05de\u05d7\u05e1\u05df"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

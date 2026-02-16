@@ -1,0 +1,89 @@
+{
+  "group": "location_aliases",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_location_alias_basic",
+      "input": "12 cucumbers to branch_c",
+      "config_overrides": {
+        "aliases_add": {
+          "branch_c": "C"
+        }
+      },
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": "warehouse"
+        },
+        {
+          "vehicle_sub_unit": "C"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_location_alias_doesnt_break_items",
+      "input": "12 spuds to branch_c",
+      "config_overrides": {
+        "aliases_add": {
+          "branch_c": "C"
+        }
+      },
+      "expected_rows": [
+        {
+          "inv_type": "small potatoes"
+        },
+        {
+          "vehicle_sub_unit": "C"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    },
+    {
+      "name": "test_location_alias_not_item",
+      "input": "4 cucumbers",
+      "config_overrides": {
+        "aliases_add": {
+          "branch_c": "C"
+        }
+      },
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers",
+          "vehicle_sub_unit": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_unknown_alias_target_no_crash",
+      "input": "4 cucumbers to L",
+      "config_overrides": {
+        "aliases_add": {
+          "mystery": "nonexistent"
+        }
+      },
+      "expected_rows": [
+        {},
+        {
+          "vehicle_sub_unit": "L"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    }
+  ]
+}

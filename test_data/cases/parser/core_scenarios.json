@@ -1,0 +1,565 @@
+{
+  "group": "core_scenarios",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_simple_consumption",
+      "input": "eaten by L 15.3.25\n2 small boxes cherry tomatoes\n4 cucumbers",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15",
+          "inv_type": "cherry tomatoes",
+          "qty": 1980,
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "2025-03-15",
+          "inv_type": "cucumbers",
+          "qty": 4,
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2,
+        "notes_count": 0,
+        "unparseable_count": 0
+      }
+    },
+    {
+      "name": "test_transfer_with_math",
+      "input": "passed 2x17 spaghetti noodles to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": -34,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": 34,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_multiple_destinations",
+      "input": "8 boxes of small pot to C\n7 boxes of small potatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": -7360,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 7360,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "C",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": -6440,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 6440,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 2,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_unparseable_numbers",
+      "input": "4 82 95 3 1\n   37 19\n   70 3",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "unparseable_count_gt": 0
+      }
+    },
+    {
+      "name": "test_supplier_delivery",
+      "input": "11*920\nsmalal potatoes\nthat's what got from Ran Serah",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 10120,
+          "trans_type": "supplier_to_warehouse",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1,
+        "field_contains": {
+          "0.notes": "Ran Serah"
+        }
+      }
+    },
+    {
+      "name": "test_multi_date_consumption",
+      "input": "eaten by L 15.3.25\n2 small boxes cherry tomatoes\n4 cucumbers\n8 boxes of small potatoes\n1 sweet cherry tomatoes\n4 chicken\n\neaten by L 16.3.25\n1980 cherry tomatoes\n4 cucumbers\n1610 small potatoes\n990 sweet cherry tomatoes\n4 chicken",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15",
+          "inv_type": "cherry tomatoes",
+          "qty": 1980,
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "inv_type": "cucumbers",
+          "qty": 4,
+          "batch": 1
+        },
+        {
+          "inv_type": "small potatoes",
+          "qty": 7360,
+          "batch": 1
+        },
+        {
+          "inv_type": "sweet cherry tomatoes",
+          "qty": 1,
+          "batch": 1
+        },
+        {
+          "inv_type": "chicken",
+          "qty": 4,
+          "batch": 1
+        },
+        {
+          "date": "2025-03-16",
+          "inv_type": "cherry tomatoes",
+          "qty": 1980,
+          "trans_type": "eaten",
+          "vehicle_sub_unit": "L",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "qty": 4,
+          "batch": 2,
+          "date": "2025-03-16"
+        },
+        {
+          "qty": 1610,
+          "batch": 2,
+          "date": "2025-03-16"
+        },
+        {
+          "qty": 990,
+          "batch": 2,
+          "date": "2025-03-16"
+        },
+        {
+          "qty": 4,
+          "batch": 2,
+          "date": "2025-03-16"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 10
+      }
+    },
+    {
+      "name": "test_warehouse_receiving",
+      "input": "+ 3 boxes of small potatoes gathered into the warehouse",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "small potatoes",
+          "qty": 2760,
+          "vehicle_sub_unit": "warehouse",
+          "date": "TODAY"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1
+      }
+    },
+    {
+      "name": "test_partial_withdrawal",
+      "input": "took 5 out of 9 carrots",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "carrots",
+          "qty": 5,
+          "trans_type": null,
+          "vehicle_sub_unit": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 1,
+        "field_contains": {
+          "0.notes": "9"
+        }
+      }
+    },
+    {
+      "name": "test_whatsapp_metadata",
+      "input": "8 boxes of small pot to C <This message was edited>",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": -7360,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 7360,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "C",
+          "batch": 1,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_no_context_list",
+      "input": "4 froot loops\n189 cornflakes\n117 cheerios\n3 cocoa puffs\n1 trix",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "froot loops",
+          "qty": 4,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "cornflakes",
+          "qty": 189,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "cheerios",
+          "qty": 117,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "cocoa puffs",
+          "qty": 3,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        },
+        {
+          "inv_type": "trix",
+          "qty": 1,
+          "trans_type": null,
+          "vehicle_sub_unit": null,
+          "date": "TODAY",
+          "batch": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 5
+      }
+    },
+    {
+      "name": "test_fractional_container",
+      "input": "passed half a box of cherry tomatoes to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": -990,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": 990,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_communication_note",
+      "input": "Rimon to N via naor by phone",
+      "config_overrides": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0,
+        "notes_count": 1,
+        "notes_contains": {
+          "0": "Rimon to N via naor by phone"
+        }
+      }
+    },
+    {
+      "name": "test_mixed_destinations",
+      "input": "passed 2x 17 spagetti noodles to L\npassed half a box of cherry tomatoes to L\n14 box of spuds to C",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": -34,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": 34,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": -990,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": 990,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": -12880,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 12880,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "C",
+          "batch": 2,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_context_broadcast_from_note",
+      "input": "cucumber\nsmall potatoes\nRimon to N via naor by phone",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "inv_type": "cucumbers",
+          "qty": -1,
+          "vehicle_sub_unit": "warehouse",
+          "trans_type": "warehouse_to_branch"
+        },
+        {
+          "inv_type": "cucumbers",
+          "qty": 1,
+          "vehicle_sub_unit": "N"
+        },
+        {
+          "inv_type": "small potatoes",
+          "qty": -1,
+          "vehicle_sub_unit": "warehouse"
+        },
+        {
+          "inv_type": "small potatoes",
+          "qty": 1,
+          "vehicle_sub_unit": "N"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 4,
+        "notes_count": 1,
+        "notes_contains": {
+          "0": "Rimon to N via naor by phone"
+        }
+      }
+    },
+    {
+      "name": "test_destination_changes_mid_list",
+      "input": "3 cucumbers to L\n2 spaghetti\n5 cherry tomatoes to C\n1 small potatoes",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY",
+          "inv_type": "cucumbers",
+          "qty": -3,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cucumbers",
+          "qty": 3,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": -2,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "spaghetti",
+          "qty": 2,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "L",
+          "batch": 1,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": -5,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "cherry tomatoes",
+          "qty": 5,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "C",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": -1,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "warehouse",
+          "batch": 2,
+          "notes": null
+        },
+        {
+          "date": "TODAY",
+          "inv_type": "small potatoes",
+          "qty": 1,
+          "trans_type": "warehouse_to_branch",
+          "vehicle_sub_unit": "C",
+          "batch": 2,
+          "notes": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 8
+      }
+    }
+  ]
+}

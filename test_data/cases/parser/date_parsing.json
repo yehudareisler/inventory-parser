@@ -1,0 +1,88 @@
+{
+  "group": "date_parsing",
+  "config": "standard_en",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_date_dd_mm_yyyy_full_year",
+      "input": "15.03.2025 4 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_date_slash_format_in_parser",
+      "input": "3/15/25 4 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_invalid_date_falls_back_to_today",
+      "input": "32.13.25 4 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_date_without_year_not_matched",
+      "input": "15.3 4 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "TODAY"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_six_digit_ddmmyy_consumed_as_date",
+      "input": "150325 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15"
+        },
+        {
+          "qty": 1
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    },
+    {
+      "name": "test_first_valid_date_wins",
+      "input": "15.3.25 16.3.25 4 cucumbers to L",
+      "config_overrides": {},
+      "expected_rows": [
+        {
+          "date": "2025-03-15"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {}
+    }
+  ]
+}

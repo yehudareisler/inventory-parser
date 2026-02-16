@@ -140,6 +140,8 @@ class _H(http.server.BaseHTTPRequestHandler):
         self._json({'rows': rows, 'notes': notes, 'unparseable': unparseable})
 
     def _handle_confirm(self, body):
+        target = body.get('target', 'both')  # 'sheet', 'clipboard', 'both'
+
         with _state_lock:
             config = _state['config']
             sheets_client = _state['sheets_client']
@@ -159,22 +161,26 @@ class _H(http.server.BaseHTTPRequestHandler):
             row.pop('_container', None)
             row.pop('_raw_qty', None)
 
-        tsv = format_rows_for_clipboard(rows, config)
+        # Generate TSV for clipboard targets
+        tsv = None
+        if target in ('clipboard', 'both'):
+            tsv = format_rows_for_clipboard(rows, config)
 
-        # Write to Google Sheet if configured
+        # Write to Google Sheet for sheet targets
         sheets_count = 0
         sheets_error = None
-        gs = config.get('google_sheets', {})
-        gs_output = gs.get('output', {})
-        if sheets_client and gs_output.get('transactions'):
-            from inventory_sheets import append_rows
-            try:
-                sheets_count = append_rows(
-                    sheets_client, gs['spreadsheet_id'],
-                    gs_output['transactions']['sheet'],
-                    rows, get_field_order(config))
-            except Exception as e:
-                sheets_error = str(e)
+        if target in ('sheet', 'both'):
+            gs = config.get('google_sheets', {})
+            gs_output = gs.get('output', {})
+            if sheets_client and gs_output.get('transactions'):
+                from inventory_sheets import append_rows
+                try:
+                    sheets_count = append_rows(
+                        sheets_client, gs['spreadsheet_id'],
+                        gs_output['transactions']['sheet'],
+                        rows, get_field_order(config))
+                except Exception as e:
+                    sheets_error = str(e)
 
         with _state_lock:
             _state['rows'] = []

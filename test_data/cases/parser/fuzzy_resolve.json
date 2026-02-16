@@ -1,0 +1,113 @@
+{
+  "group": "fuzzy_resolve",
+  "tests": [
+    {
+      "name": "test_exact_match",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "cucumbers",
+        "items": ["cucumbers", "carrots"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": "cucumbers",
+        "match_type": "exact"
+      }
+    },
+    {
+      "name": "test_exact_match_case_insensitive",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "CUCUMBERS",
+        "items": ["cucumbers", "carrots"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": "cucumbers",
+        "match_type": "exact"
+      }
+    },
+    {
+      "name": "test_alias_match",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "cukes",
+        "items": ["cucumbers"],
+        "aliases": {
+          "cukes": "cucumbers"
+        }
+      },
+      "expected_fuzzy": {
+        "result": "cucumbers",
+        "match_type": "alias"
+      }
+    },
+    {
+      "name": "test_fuzzy_match",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "cucumbrs",
+        "items": ["cucumbers", "carrots"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": "cucumbers",
+        "match_type": "fuzzy"
+      }
+    },
+    {
+      "name": "test_no_match",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "banana",
+        "items": ["cucumbers", "carrots"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": null,
+        "match_type": null
+      }
+    },
+    {
+      "name": "test_empty_text",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "",
+        "items": ["cucumbers"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": null,
+        "match_type": null
+      }
+    },
+    {
+      "name": "test_short_text_high_cutoff",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "car",
+        "items": ["carrots", "cucumbers"],
+        "aliases": {}
+      },
+      "expected_fuzzy": {
+        "result": null,
+        "match_type": null
+      }
+    },
+    {
+      "name": "test_fuzzy_via_alias_key",
+      "function": "fuzzy_resolve",
+      "fuzzy_input": {
+        "text": "spudd",
+        "items": ["small potatoes"],
+        "aliases": {
+          "spuds": "small potatoes"
+        }
+      },
+      "expected_fuzzy": {
+        "result": "small potatoes",
+        "match_type": "fuzzy"
+      }
+    }
+  ]
+}

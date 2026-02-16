@@ -121,6 +121,8 @@ _EN_DEFAULTS = {
         'help_locations_header': 'Known locations:',
         'review_parse_btn': 'Parse',
         'review_confirm_btn': 'Confirm',
+        'sheet_btn': 'Sheet',
+        'clipboard_btn': 'Clipboard',
         'review_add_row_btn': '+ Row',
         'sheets_written': '\n({count} row(s) written to sheet)',
         'sheets_write_failed': '  \u26a0 Could not write to sheet: {error}',

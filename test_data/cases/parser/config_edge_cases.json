@@ -1,0 +1,67 @@
+{
+  "group": "config_edge_cases",
+  "today": "2025-03-19",
+  "tests": [
+    {
+      "name": "test_empty_config_no_crash",
+      "input": "4 cucumbers to L",
+      "config_inline": {},
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count_gte": 0
+      }
+    },
+    {
+      "name": "test_config_no_items",
+      "input": "4 cucumbers to L",
+      "config_inline": {
+        "locations": ["L", "C"],
+        "default_source": "warehouse"
+      },
+      "expected_rows": [],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 0
+      }
+    },
+    {
+      "name": "test_config_no_locations",
+      "input": "4 cucumbers to L",
+      "config_inline": {
+        "items": ["cucumbers", "spaghetti"]
+      },
+      "expected_rows": [
+        {
+          "vehicle_sub_unit": null
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count_gte": 1
+      }
+    },
+    {
+      "name": "test_config_no_action_verbs",
+      "input": "passed 4 cucumbers to L",
+      "config_inline": {
+        "items": ["cucumbers"],
+        "locations": ["L"],
+        "default_source": "warehouse"
+      },
+      "expected_rows": [
+        {
+          "trans_type": "warehouse_to_branch"
+        }
+      ],
+      "expected_notes": [],
+      "expected_unparseable": [],
+      "assertions": {
+        "row_count": 2
+      }
+    }
+  ]
+}
