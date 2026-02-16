@@ -9,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.inventory.app.viewmodel.MainViewModel
@@ -36,6 +38,12 @@ fun MainScreen(
     var convertContainer by remember { mutableStateOf("") }
     var convertFactor by remember { mutableStateOf("") }
 
+    // Fuzzy resolve confirmation (Fix 9)
+    var showFuzzyDialog by remember { mutableStateOf(false) }
+    var fuzzyOriginal by remember { mutableStateOf("") }
+    var fuzzyResolved by remember { mutableStateOf("") }
+    var fuzzyOnConfirm by remember { mutableStateOf<(String) -> Unit>({}) }
+
     // Snackbar
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -60,24 +68,51 @@ fun MainScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Track whether Shift is held for Shift+Enter newline
+            var shiftHeld by remember { mutableStateOf(false) }
+
             // Input field — compact height so results are visible below
             OutlinedTextField(
                 value = state.inputText,
                 onValueChange = { newText ->
-                    viewModel.updateInput(newText)
-                    // Auto-parse when user presses Enter (newline at end)
-                    if (newText.endsWith("\n") && newText.trimEnd().isNotBlank()) {
+                    // If newline just appeared and Shift is NOT held → auto-parse
+                    if (newText.endsWith("\n") && !shiftHeld && newText.trimEnd().isNotBlank()) {
                         viewModel.updateInput(newText.trimEnd('\n'))
                         viewModel.parse()
+                    } else {
+                        viewModel.updateInput(newText)
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 100.dp, max = 200.dp),
+                    .heightIn(min = 100.dp, max = 200.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.key == Key.ShiftLeft || event.key == Key.ShiftRight) {
+                            shiftHeld = event.type == KeyEventType.KeyDown
+                        }
+                        false
+                    },
                 label = { Text("Paste WhatsApp message") },
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
                 maxLines = 10,
+                colors = if (state.isStale) {
+                    OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFFF8F00),
+                        unfocusedBorderColor = Color(0xFFFF8F00),
+                    )
+                } else {
+                    OutlinedTextFieldDefaults.colors()
+                },
             )
+
+            // Stale indicator
+            if (state.isStale) {
+                Text(
+                    "Results may be outdated — reparse",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFF8F00),
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -229,15 +264,34 @@ fun MainScreen(
             confirmButton = {
                 TextButton(onClick = {
                     if (aliasShort.isNotBlank() && aliasMapsTo.isNotBlank()) {
-                        viewModel.saveAlias(aliasShort.trim(), aliasMapsTo.trim())
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                ui.s("alias_saved", "alias" to aliasShort.trim(), "item" to aliasMapsTo.trim())
-                            )
+                        val target = aliasMapsTo.trim()
+                        val resolved = viewModel.fuzzyResolveItem(target)
+                        if (resolved != null) {
+                            fuzzyOriginal = target
+                            fuzzyResolved = resolved
+                            fuzzyOnConfirm = { finalTarget ->
+                                viewModel.saveAlias(aliasShort.trim(), finalTarget)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        ui.s("alias_saved", "alias" to aliasShort.trim(), "item" to finalTarget)
+                                    )
+                                }
+                                aliasShort = ""
+                                aliasMapsTo = ""
+                            }
+                            showAliasDialog = false
+                            showFuzzyDialog = true
+                        } else {
+                            viewModel.saveAlias(aliasShort.trim(), target)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    ui.s("alias_saved", "alias" to aliasShort.trim(), "item" to target)
+                                )
+                            }
+                            aliasShort = ""
+                            aliasMapsTo = ""
+                            showAliasDialog = false
                         }
-                        aliasShort = ""
-                        aliasMapsTo = ""
-                        showAliasDialog = false
                     }
                 }) { Text("Save") }
             },
@@ -287,20 +341,45 @@ fun MainScreen(
                 TextButton(onClick = {
                     val factor = convertFactor.toIntOrNull()
                     if (convertItem.isNotBlank() && convertContainer.isNotBlank() && factor != null) {
-                        viewModel.saveConversion(convertItem.trim(), convertContainer.trim(), factor)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                ui.s("conversion_saved",
-                                    "container" to convertContainer.trim(),
-                                    "item" to convertItem.trim(),
-                                    "factor" to factor.toString(),
+                        val item = convertItem.trim()
+                        val container = convertContainer.trim()
+                        val resolved = viewModel.fuzzyResolveItem(item)
+                        if (resolved != null) {
+                            fuzzyOriginal = item
+                            fuzzyResolved = resolved
+                            fuzzyOnConfirm = { finalItem ->
+                                viewModel.saveConversion(finalItem, container, factor)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        ui.s("conversion_saved",
+                                            "container" to container,
+                                            "item" to finalItem,
+                                            "factor" to factor.toString(),
+                                        )
+                                    )
+                                }
+                                convertItem = ""
+                                convertContainer = ""
+                                convertFactor = ""
+                            }
+                            showConvertDialog = false
+                            showFuzzyDialog = true
+                        } else {
+                            viewModel.saveConversion(item, container, factor)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    ui.s("conversion_saved",
+                                        "container" to container,
+                                        "item" to item,
+                                        "factor" to factor.toString(),
+                                    )
                                 )
-                            )
+                            }
+                            convertItem = ""
+                            convertContainer = ""
+                            convertFactor = ""
+                            showConvertDialog = false
                         }
-                        convertItem = ""
-                        convertContainer = ""
-                        convertFactor = ""
-                        showConvertDialog = false
                     }
                 }) { Text("Save") }
             },
@@ -311,6 +390,32 @@ fun MainScreen(
                     convertFactor = ""
                     showConvertDialog = false
                 }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Fuzzy resolve confirmation dialog (Fix 9)
+    if (showFuzzyDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showFuzzyDialog = false
+                fuzzyOnConfirm(fuzzyOriginal)
+            },
+            title = { Text("Did you mean?") },
+            text = {
+                Text("\"$fuzzyOriginal\" is close to \"$fuzzyResolved\". Use \"$fuzzyResolved\" instead?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFuzzyDialog = false
+                    fuzzyOnConfirm(fuzzyResolved)
+                }) { Text("Yes") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showFuzzyDialog = false
+                    fuzzyOnConfirm(fuzzyOriginal)
+                }) { Text("No, keep original") }
             },
         )
     }

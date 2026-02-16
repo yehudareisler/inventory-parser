@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.inventory.app.BuildConfig
 import com.inventory.app.update.UpdateResult
+import androidx.compose.ui.platform.LocalContext
 import com.inventory.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
@@ -96,6 +97,25 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val context = LocalContext.current
+                            @Suppress("UNCHECKED_CAST")
+                            val webClientId = (config["google_sheets"] as? Map<String, Any?>)
+                                ?.get("web_client_id") as? String
+                            Button(
+                                onClick = {
+                                    if (webClientId.isNullOrBlank()) {
+                                        scope.launch { snackbarHostState.showSnackbar("Set web_client_id in google_sheets config first") }
+                                    } else {
+                                        scope.launch {
+                                            viewModel.authManager.signIn(context, webClientId)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Sign in with Google")
                             }
                         }
 

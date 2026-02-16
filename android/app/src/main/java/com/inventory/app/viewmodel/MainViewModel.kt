@@ -23,6 +23,7 @@ data class ParseState(
     val unparseable: List<String> = emptyList(),
     val originalTokens: Map<Int, String> = emptyMap(),
     val isParsed: Boolean = false,
+    val isStale: Boolean = false,
     val aliasPrompts: List<Pair<String, String>> = emptyList(),
     val conversionPrompts: List<Pair<String, String>> = emptyList(),
     val sheetWriteStatus: String? = null,
@@ -45,8 +46,15 @@ class MainViewModel @Inject constructor(
     val uiStrings: StateFlow<UiStrings> = config.map { UiStrings(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, UiStrings(emptyMap()))
 
+    @Suppress("UNCHECKED_CAST")
+    val isRtl: StateFlow<Boolean> = config.map { cfg ->
+        val ui = cfg["ui"] as? Map<String, Any?> ?: emptyMap()
+        val lang = ui["language"] as? String ?: ""
+        lang.lowercase().let { it == "he" || it == "hebrew" || it == "עברית" }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun updateInput(text: String) {
-        _state.update { it.copy(inputText = text) }
+        _state.update { it.copy(inputText = text, isStale = it.isParsed) }
     }
 
     fun parse() {
@@ -73,6 +81,7 @@ class MainViewModel @Inject constructor(
                 unparseable = result.unparseable,
                 originalTokens = tokens,
                 isParsed = true,
+                isStale = false,
                 aliasPrompts = emptyList(),
                 conversionPrompts = emptyList(),
                 sheetWriteStatus = null,
@@ -90,11 +99,18 @@ class MainViewModel @Inject constructor(
         _state.update { it.copy(rows = currentRows) }
     }
 
-    fun deleteRow(rowIdx: Int) {
+    /** Delete a row. Returns a warning string if a partner row was left unbalanced, null otherwise. */
+    fun deleteRow(rowIdx: Int): String? {
         val currentRows = _state.value.rows.toMutableList()
-        if (rowIdx !in currentRows.indices) return
+        if (rowIdx !in currentRows.indices) return null
+        val partnerIdx = findPartner(currentRows, rowIdx)
         currentRows.removeAt(rowIdx)
         _state.update { it.copy(rows = currentRows) }
+        if (partnerIdx != null) {
+            val adjusted = if (partnerIdx > rowIdx) partnerIdx - 1 else partnerIdx
+            return "Row ${adjusted + 1} was the partner and is now unbalanced"
+        }
+        return null
     }
 
     fun addRow() {
@@ -121,6 +137,20 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             configRepository.addConversion(item, container, factor)
         }
+    }
+
+    /** Apply a conversion to current rows matching item+container, then clear _container */
+    fun applyConversion(item: String, container: String, factor: Int) {
+        val currentRows = _state.value.rows.toMutableList()
+        for (row in currentRows) {
+            if (row["inv_type"] == item && row["_container"] == container) {
+                val qty = (row["qty"] as? Number)?.toDouble() ?: continue
+                val converted = qty * factor
+                row["qty"] = if (converted == converted.toLong().toDouble()) converted.toInt() else converted
+                row.remove("_container")
+            }
+        }
+        _state.update { it.copy(rows = currentRows) }
     }
 
     fun discard() {
@@ -229,6 +259,14 @@ class MainViewModel @Inject constructor(
             val error = configRepository.loadFromYamlUri(uri)
             onResult(error)
         }
+    }
+
+    /** Fuzzy-resolve text against known items. Returns the resolved item if different from input, null otherwise. */
+    @Suppress("UNCHECKED_CAST")
+    fun fuzzyResolveItem(text: String): String? {
+        val items = (config.value["items"] as? List<String>) ?: return null
+        val (resolved, _) = fuzzyResolve(text, items)
+        return if (resolved != null && resolved.lowercase() != text.lowercase()) resolved else null
     }
 
     private fun githubToken(): String? {

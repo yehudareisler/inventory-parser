@@ -39,6 +39,17 @@ fun ReviewScreen(
     var showConvDialog by remember { mutableStateOf(false) }
     var convFactor by remember { mutableStateOf("") }
 
+    // Incomplete rows warning dialog (Fix 2)
+    var showIncompleteWarning by remember { mutableStateOf(false) }
+    var incompleteRowNumbers by remember { mutableStateOf<List<Int>>(emptyList()) }
+
+    // Container conversion from cell click (Fix 5)
+    var showCellConvDialog by remember { mutableStateOf(false) }
+    var cellConvRow by remember { mutableIntStateOf(-1) }
+    var cellConvItem by remember { mutableStateOf("") }
+    var cellConvContainer by remember { mutableStateOf("") }
+    var cellConvFactor by remember { mutableStateOf("") }
+
     // Snackbar
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -49,8 +60,8 @@ fun ReviewScreen(
         }
     }
 
-    // Confirm action: check learning, then write to sheet (or show status)
-    fun doConfirm() {
+    // Proceed after warning check — run learning prompts then write
+    fun proceedAfterWarningCheck() {
         viewModel.checkLearningOpportunities()
         val s = viewModel.state.value
         if (s.aliasPrompts.isNotEmpty()) {
@@ -74,6 +85,18 @@ fun ReviewScreen(
                     }
                 }
             }
+        }
+    }
+
+    // Confirm action: check incomplete fields, then learning, then write
+    fun doConfirm() {
+        val rows = viewModel.state.value.rows
+        val warnings = rows.indices.filter { rowHasWarning(rows[it], config) }
+        if (warnings.isNotEmpty()) {
+            incompleteRowNumbers = warnings.map { it + 1 }
+            showIncompleteWarning = true
+        } else {
+            proceedAfterWarningCheck()
         }
     }
 
@@ -195,9 +218,19 @@ fun ReviewScreen(
                     rows = state.rows,
                     config = config,
                     onCellClick = { rowIdx, field ->
-                        editingRow = rowIdx
-                        editingField = field
-                        editValue = formatCell(state.rows[rowIdx], field)
+                        val row = state.rows[rowIdx]
+                        // Fix 5: qty cell with _container → show conversion dialog
+                        if (field == "qty" && row["_container"] != null) {
+                            cellConvRow = rowIdx
+                            cellConvItem = row["inv_type"]?.toString() ?: ""
+                            cellConvContainer = row["_container"]?.toString() ?: ""
+                            cellConvFactor = ""
+                            showCellConvDialog = true
+                        } else {
+                            editingRow = rowIdx
+                            editingField = field
+                            editValue = formatCell(row, field)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -222,8 +255,9 @@ fun ReviewScreen(
                     editingRow = -1
                 },
                 onDelete = {
-                    viewModel.deleteRow(editingRow)
+                    val warning = viewModel.deleteRow(editingRow)
                     editingRow = -1
+                    if (warning != null) showSnackbar(warning)
                 },
                 onDismiss = { editingRow = -1 },
             )
@@ -246,8 +280,9 @@ fun ReviewScreen(
                     editingRow = -1
                 },
                 onDelete = {
-                    viewModel.deleteRow(editingRow)
+                    val warning = viewModel.deleteRow(editingRow)
                     editingRow = -1
+                    if (warning != null) showSnackbar(warning)
                 },
                 onDismiss = { editingRow = -1 },
             )
@@ -318,6 +353,7 @@ fun ReviewScreen(
                     val factor = convFactor.toIntOrNull()
                     if (factor != null) {
                         viewModel.saveConversion(item, container, factor)
+                        viewModel.applyConversion(item, container, factor)
                     }
                     convFactor = ""
                     convIdx++
@@ -336,6 +372,59 @@ fun ReviewScreen(
                         finishConfirm()
                     }
                 }) { Text("Skip") }
+            },
+        )
+    }
+
+    // Incomplete rows warning dialog (Fix 2)
+    if (showIncompleteWarning) {
+        AlertDialog(
+            onDismissRequest = { showIncompleteWarning = false },
+            title = { Text("Incomplete rows") },
+            text = {
+                Text("Rows ${incompleteRowNumbers.joinToString(", ")} have missing required fields. Continue anyway?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showIncompleteWarning = false
+                    proceedAfterWarningCheck()
+                }) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showIncompleteWarning = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Container conversion from cell click (Fix 5)
+    if (showCellConvDialog) {
+        AlertDialog(
+            onDismissRequest = { showCellConvDialog = false },
+            title = { Text("Convert $cellConvContainer") },
+            text = {
+                Column {
+                    Text("How many ${cellConvItem} in one ${cellConvContainer}?")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = cellConvFactor,
+                        onValueChange = { cellConvFactor = it },
+                        label = { Text("Factor") },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val factor = cellConvFactor.toIntOrNull()
+                    if (factor != null) {
+                        viewModel.saveConversion(cellConvItem, cellConvContainer, factor)
+                        viewModel.applyConversion(cellConvItem, cellConvContainer, factor)
+                    }
+                    showCellConvDialog = false
+                }) { Text("Convert") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCellConvDialog = false }) { Text("Cancel") }
             },
         )
     }
