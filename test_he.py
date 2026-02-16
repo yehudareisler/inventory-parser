@@ -9,11 +9,11 @@ import pytest
 from datetime import date
 
 from inventory_parser import parse
-from inventory_tui import (
-    review_loop, display_result, eval_qty, parse_date,
-    find_partner, update_partner, check_alias_opportunity,
-    UIStrings,
+from inventory_core import (
+    eval_qty, parse_date, find_partner, update_partner,
+    check_alias_opportunity, UIStrings,
 )
+from inventory_tui import review_loop, display_result
 
 
 # ============================================================

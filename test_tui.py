@@ -12,11 +12,13 @@ import pytest
 from datetime import date
 
 from inventory_parser import parse, ParseResult
+from inventory_core import (
+    eval_qty, parse_date, find_partner, update_partner,
+    check_alias_opportunity, format_rows_for_clipboard,
+    copy_to_clipboard, check_conversion_opportunity, empty_row,
+)
 from inventory_tui import (
-    review_loop, display_result, eval_qty, parse_date,
-    find_partner, update_partner, check_alias_opportunity,
-    format_rows_for_clipboard, copy_to_clipboard,
-    check_conversion_opportunity, prompt_save_conversions,
+    review_loop, display_result, prompt_save_conversions,
     add_alias_interactive, add_conversion_interactive,
 )
 
@@ -555,31 +557,31 @@ class TestFormatFunctions:
     """Tests for display formatting helpers."""
 
     def test_format_qty_none(self):
-        from inventory_tui import format_qty
+        from inventory_core import format_qty
         assert format_qty(None) == '???'
 
     def test_format_qty_int(self):
-        from inventory_tui import format_qty
+        from inventory_core import format_qty
         assert format_qty(4) == '4'
 
     def test_format_qty_float_whole(self):
-        from inventory_tui import format_qty
+        from inventory_core import format_qty
         assert format_qty(4.0) == '4'
 
     def test_format_qty_float_fraction(self):
-        from inventory_tui import format_qty
+        from inventory_core import format_qty
         assert format_qty(4.5) == '4.5'
 
     def test_format_date_none(self):
-        from inventory_tui import format_date
+        from inventory_core import format_date
         assert format_date(None) == '???'
 
     def test_format_date_date_object(self):
-        from inventory_tui import format_date
+        from inventory_core import format_date
         assert format_date(date(2025, 3, 15)) == '2025-03-15'
 
     def test_format_date_string_passthrough(self):
-        from inventory_tui import format_date
+        from inventory_core import format_date
         assert format_date("some string") == "some string"
 
 
@@ -587,22 +589,22 @@ class TestRowWarningDetection:
     """Tests for row_has_warning (⚠ flag detection)."""
 
     def test_complete_row_no_warning(self):
-        from inventory_tui import row_has_warning
+        from inventory_core import row_has_warning
         row = {'trans_type': 'eaten', 'vehicle_sub_unit': 'L'}
         assert not row_has_warning(row)
 
     def test_missing_trans_type_has_warning(self):
-        from inventory_tui import row_has_warning
+        from inventory_core import row_has_warning
         row = {'trans_type': None, 'vehicle_sub_unit': 'L'}
         assert row_has_warning(row)
 
     def test_missing_location_has_warning(self):
-        from inventory_tui import row_has_warning
+        from inventory_core import row_has_warning
         row = {'trans_type': 'eaten', 'vehicle_sub_unit': None}
         assert row_has_warning(row)
 
     def test_both_missing_has_warning(self):
-        from inventory_tui import row_has_warning
+        from inventory_core import row_has_warning
         row = {'trans_type': None, 'vehicle_sub_unit': None}
         assert row_has_warning(row)
 
@@ -1800,7 +1802,7 @@ class TestConfigDrivenFields:
         assert 'vehicle_sub_unit' in result
 
     def test_row_has_warning_with_config(self, config):
-        from inventory_tui import row_has_warning
+        from inventory_core import row_has_warning
         config['required_fields'] = ['trans_type']
         row = {'trans_type': None, 'vehicle_sub_unit': 'L'}
         assert row_has_warning(row, config) is True
