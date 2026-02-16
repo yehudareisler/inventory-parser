@@ -356,6 +356,55 @@ async function doConfirm() {
     }
 
     try {
+        // Prompt for unknown conversions BEFORE confirming
+        const seen = new Set();
+        for (let ri = 0; ri < state.rows.length; ri++) {
+            const row = state.rows[ri];
+            if (!row._container || row.inv_type === '???') continue;
+            const key = row.inv_type + '|' + row._container;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            // Check if conversion is already known
+            const convs = (cfg.unit_conversions || {})[row.inv_type] || {};
+            if (convs[row._container] != null) continue;
+
+            const factor = await new Promise(resolve => {
+                const { overlay, modal } = createModal(s('save_conversion_prompt', {item: row.inv_type, container: row._container}));
+                const factorInp = addInput(modal, s('convert_factor_prompt', {container: row._container}), 'modal-preconfirm-factor', 'number');
+                addButtons(modal, overlay, async (ov) => {
+                    const f = factorInp.value.trim();
+                    ov.remove();
+                    resolve(f && !isNaN(parseFloat(f)) ? parseFloat(f) : null);
+                });
+                const skipBtn = modal.querySelector('.modal-buttons .btn:not(.btn-primary)');
+                if (skipBtn) {
+                    const origClick = skipBtn.onclick;
+                    skipBtn.onclick = () => { origClick(); resolve(null); };
+                }
+                factorInp.focus();
+            });
+
+            if (factor) {
+                // Save the conversion
+                await fetch('/api/conversion', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({item: row.inv_type, container: row._container, factor})
+                });
+                // Apply to ALL rows with same item+container
+                for (let j = 0; j < state.rows.length; j++) {
+                    const r = state.rows[j];
+                    if (r.inv_type === row.inv_type && r._container === row._container) {
+                        const rawQty = r._raw_qty != null ? r._raw_qty : r.qty;
+                        state.rows[j].qty = rawQty * factor;
+                        state.rows[j]._container = null;
+                        state.rows[j]._raw_qty = null;
+                    }
+                }
+                await loadConfig();
+            }
+        }
+
         const r = await fetch('/api/confirm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -366,7 +415,13 @@ async function doConfirm() {
             try { await navigator.clipboard.writeText(d.clip); }
             catch(e) { console.warn('clipboard failed', e); }
         }
-        showStatus(s('clipboard_copied', {count: String(d.count)}) || d.count + ' rows copied');
+        let statusMsg = s('clipboard_copied', {count: String(d.count)}) || d.count + ' rows copied';
+        if (d.sheets_error) {
+            statusMsg += ' | \u26a0 Sheet: ' + d.sheets_error;
+        } else if (d.sheets_count > 0) {
+            statusMsg += ' + ' + d.sheets_count + ' to sheet';
+        }
+        showStatus(statusMsg);
 
         // Alias learning
         if (d.alias_prompts && d.alias_prompts.length) {
@@ -378,12 +433,6 @@ async function doConfirm() {
                         body: JSON.stringify({alias: orig, target: canon})
                     });
                 }
-            }
-        }
-        // Conversion learning — use modal
-        if (d.conv_prompts && d.conv_prompts.length) {
-            for (const [item, container] of d.conv_prompts) {
-                await showConvertLearnModal(item, container);
             }
         }
 
@@ -618,6 +667,53 @@ function showConvertModal() {
     itemInp.focus();
 }
 
+// ---- Convert prompt during review (clicking [box?]) ----
+async function promptContainerConversion(rowIdx, row) {
+    const item = row.inv_type;
+    const container = row._container;
+    if (!item || !container) return;
+
+    const factor = await new Promise(resolve => {
+        const { overlay, modal } = createModal(s('save_conversion_prompt', {item, container}));
+        const factorInp = addInput(modal, s('convert_factor_prompt', {container}), 'modal-inline-factor', 'number');
+        addButtons(modal, overlay, async (ov) => {
+            const f = factorInp.value.trim();
+            ov.remove();
+            resolve(f && !isNaN(parseFloat(f)) ? parseFloat(f) : null);
+        });
+        const skipBtn = modal.querySelector('.modal-buttons .btn:not(.btn-primary)');
+        if (skipBtn) {
+            const origClick = skipBtn.onclick;
+            skipBtn.onclick = () => { origClick(); resolve(null); };
+        }
+        factorInp.focus();
+    });
+
+    if (factor) {
+        // Save the conversion
+        await fetch('/api/conversion', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({item, container, factor})
+        });
+        // Apply to the row's qty: raw_qty * factor
+        const rawQty = row._raw_qty != null ? row._raw_qty : row.qty;
+        const newQty = rawQty * factor;
+        // Edit the row via the API
+        await fetch('/api/edit', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rows: state.rows, row_idx: rowIdx, field: 'qty', value: String(newQty)})
+        }).then(r => r.json()).then(d => { state.rows = d.rows; });
+        // Clear the container flag so it doesn't show [box?] anymore
+        state.rows[rowIdx]._container = null;
+        state.rows[rowIdx]._raw_qty = null;
+        await loadConfig();
+        renderAll();
+        showStatus(s('conversion_saved', {item, container, factor: String(factor)}));
+    }
+}
+
 // ---- Convert learn modal (post-confirm) ----
 function showConvertLearnModal(item, container) {
     return new Promise(resolve => {
@@ -739,6 +835,8 @@ function renderTable() {
                 if (val == null) val = '???';
                 if (field === 'qty' && row._container) {
                     td.textContent = val + ' [' + row._container + '?]';
+                    td.classList.add('warn');
+                    td.onclick = () => promptContainerConversion(ri, row);
                 } else {
                     td.textContent = String(val);
                 }

@@ -122,6 +122,8 @@ _EN_DEFAULTS = {
         'review_parse_btn': 'Parse',
         'review_confirm_btn': 'Confirm',
         'review_add_row_btn': '+ Row',
+        'sheets_written': '\n({count} row(s) written to sheet)',
+        'sheets_write_failed': '  \u26a0 Could not write to sheet: {error}',
     },
 }
 
@@ -252,9 +254,90 @@ def load_config(path):
 
 
 def save_config(config, path):
+    """Save config to YAML, stripping any sheet-managed fields."""
+    if path is None:
+        return
+    to_save = {k: v for k, v in config.items() if k != '_sheet_fields'}
+    for field in config.get('_sheet_fields', set()):
+        to_save.pop(field, None)
     with open(path, 'w', encoding='utf-8') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False,
+        yaml.dump(to_save, f, default_flow_style=False, sort_keys=False,
                   allow_unicode=True)
+
+
+def load_config_with_sheets(path):
+    """Load YAML config, then overlay Google Sheets data if configured.
+
+    Returns (config, sheets_client_or_None).
+    The client is returned so it can be reused at confirm time for writing.
+    """
+    config = load_config(path)
+
+    gs = config.get('google_sheets')
+    if not gs:
+        return config, None
+
+    from inventory_sheets import authenticate, load_sheet_config
+
+    client = authenticate(
+        gs.get('credentials_file'),  # None → uses gcloud ADC
+        token_file=gs.get('token_file'),
+    )
+
+    input_mappings = gs.get('input', {})
+    if input_mappings:
+        overlay = load_sheet_config(client, gs['spreadsheet_id'], input_mappings)
+        config['_sheet_fields'] = set(overlay.keys())
+        config.update(overlay)
+
+    return config, client
+
+
+def save_learned_alias(config, config_path, sheets_client, alias, target):
+    """Save a learned alias — to sheet if sheet-managed, else to YAML.
+
+    Always updates in-memory config so the alias takes effect immediately.
+    If sheet-managed but no output target, the alias is in-memory only.
+    """
+    if 'aliases' not in config:
+        config['aliases'] = {}
+    config['aliases'][alias] = target
+
+    if 'aliases' in config.get('_sheet_fields', set()):
+        gs = config.get('google_sheets', {})
+        output_aliases = gs.get('output', {}).get('aliases')
+        if output_aliases:
+            from inventory_sheets import append_alias
+            append_alias(sheets_client, gs['spreadsheet_id'],
+                         output_aliases['sheet'], alias, target)
+        # else: sheet-managed but no output → in-memory only
+    else:
+        save_config(config, config_path)
+
+
+def save_learned_conversion(config, config_path, sheets_client,
+                            item, container, factor):
+    """Save a learned unit conversion — to sheet if sheet-managed, else to YAML.
+
+    Always updates in-memory config so the conversion takes effect immediately.
+    If sheet-managed but no output target, the conversion is in-memory only.
+    """
+    if 'unit_conversions' not in config:
+        config['unit_conversions'] = {}
+    if item not in config['unit_conversions']:
+        config['unit_conversions'][item] = {}
+    config['unit_conversions'][item][container] = factor
+
+    if 'unit_conversions' in config.get('_sheet_fields', set()):
+        gs = config.get('google_sheets', {})
+        output_convs = gs.get('output', {}).get('unit_conversions')
+        if output_convs:
+            from inventory_sheets import append_conversion
+            append_conversion(sheets_client, gs['spreadsheet_id'],
+                              output_convs['sheet'], item, container, factor)
+        # else: sheet-managed but no output → in-memory only
+    else:
+        save_config(config, config_path)
 
 
 # ============================================================

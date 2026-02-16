@@ -11,6 +11,8 @@ from datetime import date
 from inventory_parser import parse
 from inventory_core import (
     UIStrings, load_config, save_config,
+    load_config_with_sheets,
+    save_learned_alias, save_learned_conversion,
     get_closed_set_fields, get_field_order, get_required_fields,
     get_closed_set_options,
     _row_to_cells,
@@ -172,7 +174,7 @@ def edit_open_field(field, current_value, ui):
 # Alias learning (interactive)
 # ============================================================
 
-def prompt_save_aliases(prompts, config, ui):
+def prompt_save_aliases(prompts, config, config_path, sheets_client, ui):
     """Ask user whether to save new aliases."""
     yes = ui.commands['yes']
     saved = False
@@ -182,9 +184,8 @@ def prompt_save_aliases(prompts, config, ui):
                    yes=ui.commands['yes'], no=ui.commands['no']), end='')
         resp = input().strip().lower()
         if resp == yes:
-            if 'aliases' not in config:
-                config['aliases'] = {}
-            config['aliases'][original] = canonical
+            save_learned_alias(config, config_path, sheets_client,
+                               original, canonical)
             saved = True
     return saved
 
@@ -193,7 +194,7 @@ def prompt_save_aliases(prompts, config, ui):
 # Unit conversion learning (interactive)
 # ============================================================
 
-def prompt_save_conversions(prompts, config, ui):
+def prompt_save_conversions(prompts, config, config_path, sheets_client, ui):
     """Ask user to define conversion factors for unconverted containers."""
     saved = False
     for item, container in prompts:
@@ -208,11 +209,8 @@ def prompt_save_conversions(prompts, config, ui):
                 factor = int(factor)
         except ValueError:
             continue
-        if 'unit_conversions' not in config:
-            config['unit_conversions'] = {}
-        if item not in config['unit_conversions']:
-            config['unit_conversions'][item] = {}
-        config['unit_conversions'][item][container] = factor
+        save_learned_conversion(config, config_path, sheets_client,
+                                item, container, factor)
         print(ui.s('conversion_saved', item=item, container=container, factor=factor))
         saved = True
     return saved
@@ -222,7 +220,7 @@ def prompt_save_conversions(prompts, config, ui):
 # Direct add commands
 # ============================================================
 
-def add_alias_interactive(config, ui):
+def add_alias_interactive(config, config_path, sheets_client, ui):
     """Interactively add an alias with fuzzy matching."""
     from inventory_parser import fuzzy_resolve
 
@@ -258,14 +256,12 @@ def add_alias_interactive(config, ui):
     else:
         target = target_text
 
-    if 'aliases' not in config:
-        config['aliases'] = {}
-    config['aliases'][alias] = target
+    save_learned_alias(config, config_path, sheets_client, alias, target)
     print(ui.s('alias_saved', alias=alias, item=target))
     return True
 
 
-def add_conversion_interactive(config, ui):
+def add_conversion_interactive(config, config_path, sheets_client, ui):
     """Interactively add a unit conversion with fuzzy matching."""
     from inventory_parser import fuzzy_resolve, get_all_containers
 
@@ -325,11 +321,8 @@ def add_conversion_interactive(config, ui):
             factor = int(factor)
     except ValueError:
         return False
-    if 'unit_conversions' not in config:
-        config['unit_conversions'] = {}
-    if item not in config['unit_conversions']:
-        config['unit_conversions'][item] = {}
-    config['unit_conversions'][item][container] = factor
+    save_learned_conversion(config, config_path, sheets_client,
+                            item, container, factor)
     print(ui.s('conversion_saved', item=item, container=container, factor=factor))
     return True
 
@@ -338,7 +331,7 @@ def add_conversion_interactive(config, ui):
 # Review loop
 # ============================================================
 
-def review_loop(result, raw_text, config):
+def review_loop(result, raw_text, config, config_path=None, sheets_client=None):
     """Interactive review. Returns confirmed rows or None (quit)."""
     ui = UIStrings(config)
     rows = list(result.rows)
@@ -420,11 +413,13 @@ def review_loop(result, raw_text, config):
             if original_tokens:
                 prompts = check_alias_opportunity(rows, original_tokens, config)
                 if prompts:
-                    prompt_save_aliases(prompts, config, ui)
+                    prompt_save_aliases(prompts, config, config_path,
+                                       sheets_client, ui)
 
             conv_prompts = check_conversion_opportunity(rows, config)
             if conv_prompts:
-                prompt_save_conversions(conv_prompts, config, ui)
+                prompt_save_conversions(conv_prompts, config, config_path,
+                                       sheets_client, ui)
 
             # Strip metadata fields before returning
             for row in rows:
@@ -555,7 +550,7 @@ def _edit_retry(raw_text, config, ui):
 
 def main(config_path='config_he.yaml'):
     try:
-        config = load_config(config_path)
+        config, sheets_client = load_config_with_sheets(config_path)
     except FileNotFoundError:
         print(f"Config file not found: {config_path}")
         print("Create one based on config.yaml.example")
@@ -575,18 +570,17 @@ def main(config_path='config_he.yaml'):
         # Direct commands
         cmd = raw_text.strip().lower()
         if cmd == ui.s('cmd_alias').lower():
-            add_alias_interactive(config, ui)
-            save_config(config, config_path)
+            add_alias_interactive(config, config_path, sheets_client, ui)
             ui = UIStrings(config)
             continue
         if cmd == ui.s('cmd_convert').lower():
-            add_conversion_interactive(config, ui)
-            save_config(config, config_path)
+            add_conversion_interactive(config, config_path, sheets_client, ui)
             continue
 
         result = parse(raw_text, config)
 
-        outcome = review_loop(result, raw_text, config)
+        outcome = review_loop(result, raw_text, config, config_path,
+                              sheets_client)
 
         if outcome is None:
             print(ui.s('discarded'))
@@ -603,6 +597,20 @@ def main(config_path='config_he.yaml'):
                 print(ui.s('clipboard_failed'))
                 display_result(confirmed_rows, ui=ui, config=config)
                 print(ui.s('confirmed_count', count=len(confirmed_rows)))
+
+            # Write to Google Sheet if configured
+            gs = config.get('google_sheets', {})
+            gs_output = gs.get('output', {})
+            if sheets_client and gs_output.get('transactions'):
+                from inventory_sheets import append_rows
+                try:
+                    count = append_rows(
+                        sheets_client, gs['spreadsheet_id'],
+                        gs_output['transactions']['sheet'],
+                        confirmed_rows, get_field_order(config))
+                    print(ui.s('sheets_written', count=count))
+                except Exception as e:
+                    print(f"  \u26a0 Could not write to sheet: {e}")
 
         if confirmed_notes:
             saved_prefix = ui.s('saved_note_prefix')

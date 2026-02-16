@@ -1265,7 +1265,7 @@ class TestClipboardIntegration:
         from inventory_tui import main
 
         # Mock config loading to use our test config
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
 
         # Simulate: paste message → confirm → exit
@@ -1302,7 +1302,7 @@ class TestClipboardIntegration:
         """After confirm, the table should NOT be reprinted."""
         from inventory_tui import main
 
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
         monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: True)
 
@@ -1330,7 +1330,7 @@ class TestClipboardIntegration:
         """If clipboard fails, fall back to printing the table."""
         from inventory_tui import main
 
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
         monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: False)
 
@@ -1357,7 +1357,7 @@ class TestClipboardIntegration:
         """Notes are still printed to console even when clipboard succeeds."""
         from inventory_tui import main
 
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
         monkeypatch.setattr('inventory_tui.copy_to_clipboard', lambda text: True)
 
@@ -1419,7 +1419,7 @@ class TestConversionOpportunity:
         ui = UIStrings(config)
         monkeypatch.setattr('builtins.input', make_input(['920']))
 
-        prompt_save_conversions([('cucumbers', 'box')], config, ui)
+        prompt_save_conversions([('cucumbers', 'box')], config, None, None, ui)
 
         assert config['unit_conversions']['cucumbers']['box'] == 920
 
@@ -1429,7 +1429,7 @@ class TestConversionOpportunity:
         ui = UIStrings(config)
         monkeypatch.setattr('builtins.input', make_input(['']))
 
-        prompt_save_conversions([('cucumbers', 'box')], config, ui)
+        prompt_save_conversions([('cucumbers', 'box')], config, None, None, ui)
 
         assert 'cucumbers' not in config.get('unit_conversions', {}) or \
                'box' not in config['unit_conversions'].get('cucumbers', {})
@@ -1525,7 +1525,7 @@ class TestDirectAddAlias:
         ui = UIStrings(config)
         monkeypatch.setattr('builtins.input', make_input(['cukes', 'cucumbers']))
 
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
 
         assert result is True
         assert config['aliases']['cukes'] == 'cucumbers'
@@ -1536,14 +1536,14 @@ class TestDirectAddAlias:
         ui = UIStrings(config)
         monkeypatch.setattr('builtins.input', make_input(['']))
 
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is False
 
     def test_alias_command_in_main(self, config, monkeypatch, capsys):
         """Typing 'alias' at paste prompt triggers interactive add."""
         from inventory_tui import main
 
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
 
         monkeypatch.setattr('builtins.input', make_input([
@@ -1573,7 +1573,7 @@ class TestDirectAddConversion:
             'cucumbers', 'crate', '500',
         ]))
 
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
 
         assert result is True
         assert config['unit_conversions']['cucumbers']['crate'] == 500
@@ -1584,14 +1584,14 @@ class TestDirectAddConversion:
         ui = UIStrings(config)
         monkeypatch.setattr('builtins.input', make_input(['']))
 
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
         assert result is False
 
     def test_convert_command_in_main(self, config, monkeypatch, capsys):
         """Typing 'convert' at paste prompt triggers interactive add."""
         from inventory_tui import main
 
-        monkeypatch.setattr('inventory_tui.load_config', lambda path: config)
+        monkeypatch.setattr('inventory_tui.load_config_with_sheets', lambda path: (config, None))
         monkeypatch.setattr('inventory_tui.save_config', lambda config, path: None)
 
         monkeypatch.setattr('builtins.input', make_input([
@@ -1626,7 +1626,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cukes', 'cucumbrs', 'y',
         ]))
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is True
         assert config['aliases']['cukes'] == 'cucumbers'
 
@@ -1637,7 +1637,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cukes', 'cucumbrs', 'n',
         ]))
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is False
         assert 'cukes' not in config['aliases']
 
@@ -1649,7 +1649,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cukes', 'cucumbers',
         ]))
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is True
         assert config['aliases']['cukes'] == 'cucumbers'
 
@@ -1660,7 +1660,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'xyz', 'banana',
         ]))
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is True
         assert config['aliases']['xyz'] == 'banana'
 
@@ -1672,7 +1672,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'branch_l', 'L',
         ]))
-        result = add_alias_interactive(config, ui)
+        result = add_alias_interactive(config, None, None, ui)
         assert result is True
         assert config['aliases']['branch_l'] == 'L'
 
@@ -1683,7 +1683,7 @@ class TestFuzzyAliasInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cukes', 'cucumbers',
         ]))
-        add_alias_interactive(config, ui)
+        add_alias_interactive(config, None, None, ui)
         output = capsys.readouterr().out
         assert 'L' in output  # location hint shown
         assert 'cucumbers' in output  # item hint shown
@@ -1700,7 +1700,7 @@ class TestFuzzyConversionInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cucumbrs', 'y', 'crate', '500',
         ]))
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
         assert result is True
         assert config['unit_conversions']['cucumbers']['crate'] == 500
 
@@ -1711,7 +1711,7 @@ class TestFuzzyConversionInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cucumbrs', 'n',
         ]))
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
         assert result is False
 
     def test_exact_item_no_confirmation(self, config, monkeypatch, capsys):
@@ -1721,7 +1721,7 @@ class TestFuzzyConversionInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cucumbers', 'crate', '500',
         ]))
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
         assert result is True
         assert config['unit_conversions']['cucumbers']['crate'] == 500
 
@@ -1733,7 +1733,7 @@ class TestFuzzyConversionInteractive:
         monkeypatch.setattr('builtins.input', make_input([
             'cucumbers', 'small bx', 'y', '500',
         ]))
-        result = add_conversion_interactive(config, ui)
+        result = add_conversion_interactive(config, None, None, ui)
         assert result is True
         assert config['unit_conversions']['cucumbers']['small box'] == 500
 

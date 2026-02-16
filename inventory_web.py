@@ -16,6 +16,8 @@ from datetime import date
 from inventory_parser import parse, fuzzy_resolve
 from inventory_core import (
     UIStrings, load_config, save_config,
+    load_config_with_sheets,
+    save_learned_alias, save_learned_conversion,
     format_rows_for_clipboard, find_partner,
     check_alias_opportunity, check_conversion_opportunity,
     empty_row, eval_qty, parse_date,
@@ -27,6 +29,7 @@ _state_lock = threading.Lock()
 _state = {
     'config': None,
     'config_path': None,
+    'sheets_client': None,
     'rows': [],
     'notes': [],
     'unparseable': [],
@@ -139,11 +142,17 @@ class _H(http.server.BaseHTTPRequestHandler):
     def _handle_confirm(self, body):
         with _state_lock:
             config = _state['config']
-            rows = _state['rows']
+            sheets_client = _state['sheets_client']
+
+        # Use rows from JS (may have updated qty from pre-confirm conversions)
+        if body.get('rows'):
+            rows = _deserialize_rows(body['rows'])
+        else:
+            with _state_lock:
+                rows = _state['rows']
 
         # Check learning opportunities before stripping metadata
         alias_prompts = check_alias_opportunity(rows, _state.get('original_tokens', {}), config)
-        conv_prompts = check_conversion_opportunity(rows, config)
 
         # Strip metadata
         for row in rows:
@@ -151,6 +160,21 @@ class _H(http.server.BaseHTTPRequestHandler):
             row.pop('_raw_qty', None)
 
         tsv = format_rows_for_clipboard(rows, config)
+
+        # Write to Google Sheet if configured
+        sheets_count = 0
+        sheets_error = None
+        gs = config.get('google_sheets', {})
+        gs_output = gs.get('output', {})
+        if sheets_client and gs_output.get('transactions'):
+            from inventory_sheets import append_rows
+            try:
+                sheets_count = append_rows(
+                    sheets_client, gs['spreadsheet_id'],
+                    gs_output['transactions']['sheet'],
+                    rows, get_field_order(config))
+            except Exception as e:
+                sheets_error = str(e)
 
         with _state_lock:
             _state['rows'] = []
@@ -164,7 +188,8 @@ class _H(http.server.BaseHTTPRequestHandler):
             'count': len(rows),
             'clip': tsv,
             'alias_prompts': alias_prompts,
-            'conv_prompts': conv_prompts,
+            'sheets_count': sheets_count,
+            'sheets_error': sheets_error,
         })
 
     def _handle_edit(self, body):
@@ -259,6 +284,7 @@ class _H(http.server.BaseHTTPRequestHandler):
 
         with _state_lock:
             config = _state['config']
+            sheets_client = _state['sheets_client']
 
         # Fuzzy resolve target
         items = config.get('items', [])
@@ -267,12 +293,8 @@ class _H(http.server.BaseHTTPRequestHandler):
         resolved, match_type = fuzzy_resolve(target, all_entities, config.get('aliases', {}))
         final_target = resolved if resolved else target
 
-        if 'aliases' not in config:
-            config['aliases'] = {}
-        config['aliases'][alias] = final_target
-
-        with _state_lock:
-            save_config(config, _state['config_path'])
+        save_learned_alias(config, _state['config_path'], sheets_client,
+                           alias, final_target)
 
         self._json({'ok': True, 'resolved': final_target, 'match_type': match_type})
 
@@ -286,6 +308,7 @@ class _H(http.server.BaseHTTPRequestHandler):
 
         with _state_lock:
             config = _state['config']
+            sheets_client = _state['sheets_client']
 
         # Fuzzy resolve item and container
         items = config.get('items', [])
@@ -301,14 +324,8 @@ class _H(http.server.BaseHTTPRequestHandler):
         if factor_val == int(factor_val):
             factor_val = int(factor_val)
 
-        if 'unit_conversions' not in config:
-            config['unit_conversions'] = {}
-        if final_item not in config['unit_conversions']:
-            config['unit_conversions'][final_item] = {}
-        config['unit_conversions'][final_item][final_container] = factor_val
-
-        with _state_lock:
-            save_config(config, _state['config_path'])
+        save_learned_conversion(config, _state['config_path'], sheets_client,
+                                final_item, final_container, factor_val)
 
         self._json({'ok': True, 'item': final_item, 'container': final_container})
 
@@ -365,10 +382,11 @@ def main():
     port = 8765
     config_path = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith('.yaml') else 'config_he.yaml'
 
-    config = load_config(config_path)
+    config, sheets_client = load_config_with_sheets(config_path)
     with _state_lock:
         _state['config'] = config
         _state['config_path'] = config_path
+        _state['sheets_client'] = sheets_client
 
     class _ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True

@@ -1,84 +1,39 @@
-items:
-  - cherry tomatoes
-  - sweet cherry tomatoes
-  - small potatoes
-  - spaghetti
-  - cucumbers
-  - chicken
-  - carrots
-  - aluminum pans
-  - froot loops
-  - cornflakes
-  - cheerios
-  - cocoa puffs
-  - trix
-
-aliases:
-  small pot: small potatoes
-  cherry tom: cherry tomatoes
-  spaghetti noodles: spaghetti
-  spuds: small potatoes
-
-locations:
-  - L
-  - C
-  - N
-
 default_source: warehouse
-
-transaction_types:
-  - starting_point
-  - recount
-  - warehouse_to_branch
-  - supplier_to_warehouse
-  - eaten
-  - between_branch
-  - between_warehouses
-  - inside_branch
-
-action_verbs:
-  warehouse_to_branch: [passed, gave, sent, delivered]
-  supplier_to_warehouse: [received, got]
-  eaten: [eaten, consumed, used]
-
 prepositions:
-  to: [to, into]
-  by: [by]
-  from: [from]
-
-from_words: [from]
-
+  to:
+  - to
+  - into
+  by:
+  - by
+  from:
+  - from
+from_words:
+- from
 filler_words:
-  - "\\bthat's\\b"
-  - "\\bwhat\\b"
-  - "\\bthe\\b"
-  - "\\bof\\b"
-  - "\\ba\\b"
-  - "\\ban\\b"
-  - "\\bsome\\b"
-  - "\\bvia\\b"
-
+- \bthat's\b
+- \bwhat\b
+- \bthe\b
+- \bof\b
+- \ba\b
+- \ban\b
+- \bsome\b
+- \bvia\b
 non_zero_sum_types:
-  - eaten
-  - starting_point
-  - recount
-  - supplier_to_warehouse
-
+- eaten
+- starting_point
+- recount
+- supplier_to_warehouse
 default_transfer_type: warehouse_to_branch
-
 field_options:
   inv_type: items
   trans_type: transaction_types
   vehicle_sub_unit: locations
-
 required_fields:
-  - trans_type
-  - vehicle_sub_unit
-
+- trans_type
+- vehicle_sub_unit
 field_defaults:
   vehicle_sub_unit: warehouse
   trans_type: warehouse_to_branch
-
 ui:
   commands:
     confirm: c
@@ -88,10 +43,10 @@ ui:
     save_note: n
     skip: s
     delete_prefix: x
-    add_row: '+'
+    add_row: +
     help: '?'
-    "yes": y
-    "no": n
+    'yes': y
+    'no': n
   field_codes:
     d: date
     i: inv_type
@@ -108,93 +63,149 @@ ui:
     date: DATE
     notes: NOTES
     batch: BATCH
-  table_headers: ['#', DATE, ITEM, QTY, TYPE, LOCATION, BATCH, NOTES]
+  table_headers:
+  - '#'
+  - DATE
+  - ITEM
+  - QTY
+  - TYPE
+  - LOCATION
+  - BATCH
+  - NOTES
   field_order:
-    - date
-    - inv_type
-    - qty
-    - trans_type
-    - vehicle_sub_unit
-    - batch
-    - notes
+  - date
+  - inv_type
+  - qty
+  - trans_type
+  - vehicle_sub_unit
+  - batch
+  - notes
   option_letters: abcdefghijklmnopqrstuvwxyz
   strings:
-    paste_prompt: "\nPaste message ('exit' to quit, 'alias'/'convert' to add):"
+    paste_prompt: '
+
+      Paste message (''exit'' to quit, ''alias''/''convert'' to add):'
     exit_word: exit
-    nothing_to_display: "\nNothing to display."
+    nothing_to_display: '
+
+      Nothing to display.'
     note_prefix: Note
     unparseable_prefix: Could not parse
     saved_note_prefix: Saved note
-    no_transactions: "\nNo transactions found."
-    review_prompt: "\n[c]onfirm / edit (e.g. 1i) / [r]etry / [q]uit  (? for help)"
-    notes_only_prompt: "Save as [n]ote / [e]dit and retry / [s]kip  (? for help)"
-    unparseable_prompt: "\n[e]dit and retry / [s]kip  (? for help)"
-    confirm_incomplete_warning: "  Warning: Row(s) {row_list} have incomplete fields (???). Confirm anyway? [{yes}/{no}] "
-    enter_letter_prompt: "Enter letter (or Enter to cancel)> "
-    edit_cancelled: "  Edit cancelled."
-    invalid_choice: "  Invalid choice. Enter a letter ({first}-{last})."
-    open_field_prompt: "\n{display_name} (current: {current}, Enter to cancel)"
-    invalid_quantity: "  Invalid quantity."
-    invalid_date: "  Invalid date. Use DD.MM.YY or YYYY-MM-DD."
-    invalid_batch: "  Invalid batch number."
-    row_deleted: "  Row {num} deleted."
-    delete_partner_warning: "  Note: Row {partner_num} is the double-entry partner and now standalone."
-    invalid_row: "  Invalid row number."
-    row_updated: "  Row {num} {field} \u2192 {value}"
-    unknown_command: "  Unknown command. Type ? for help, or try e.g. 1{example_field} to edit {example_name} on row 1."
-    original_text_label: "\nOriginal text:\n{text}\n"
-    enter_corrected_text: "Enter corrected text (empty line to finish):"
-    edit_line_prompt: "Line # to edit (Enter to re-parse):"
-    edit_line_new: "  New text (Enter to delete line):"
-    edit_line_updated: "  Line {num} updated."
-    edit_line_deleted: "  Line {num} deleted."
-    save_alias_prompt: "Save \"{original}\" \u2192 \"{canonical}\" as alias? [{yes}/{no}] "
-    title: "=== Inventory Message Parser ==="
-    subtitle: "Paste a WhatsApp message to parse. Type 'exit' to quit.\n"
+    no_transactions: '
+
+      No transactions found.'
+    review_prompt: '
+
+      [c]onfirm / edit (e.g. 1i) / [r]etry / [q]uit  (? for help)'
+    notes_only_prompt: Save as [n]ote / [e]dit and retry / [s]kip  (? for help)
+    unparseable_prompt: '
+
+      [e]dit and retry / [s]kip  (? for help)'
+    confirm_incomplete_warning: '  Warning: Row(s) {row_list} have incomplete fields
+      (???). Confirm anyway? [{yes}/{no}] '
+    enter_letter_prompt: 'Enter letter (or Enter to cancel)> '
+    edit_cancelled: '  Edit cancelled.'
+    invalid_choice: '  Invalid choice. Enter a letter ({first}-{last}).'
+    open_field_prompt: '
+
+      {display_name} (current: {current}, Enter to cancel)'
+    invalid_quantity: '  Invalid quantity.'
+    invalid_date: '  Invalid date. Use DD.MM.YY or YYYY-MM-DD.'
+    invalid_batch: '  Invalid batch number.'
+    row_deleted: '  Row {num} deleted.'
+    delete_partner_warning: '  Note: Row {partner_num} is the double-entry partner
+      and now standalone.'
+    invalid_row: '  Invalid row number.'
+    row_updated: '  Row {num} {field} → {value}'
+    unknown_command: '  Unknown command. Type ? for help, or try e.g. 1{example_field}
+      to edit {example_name} on row 1.'
+    original_text_label: '
+
+      Original text:
+
+      {text}
+
+      '
+    enter_corrected_text: 'Enter corrected text (empty line to finish):'
+    edit_line_prompt: 'Line # to edit (Enter to re-parse):'
+    edit_line_new: '  New text (Enter to delete line):'
+    edit_line_updated: '  Line {num} updated.'
+    edit_line_deleted: '  Line {num} deleted.'
+    save_alias_prompt: 'Save "{original}" → "{canonical}" as alias? [{yes}/{no}] '
+    title: === Inventory Message Parser ===
+    subtitle: 'Paste a WhatsApp message to parse. Type ''exit'' to quit.
+
+      '
     goodbye: Goodbye.
-    discarded: "  Discarded."
-    confirmed_title: "\n=== Confirmed transactions ==="
-    confirmed_count: "\n({count} row(s) confirmed)"
-    clipboard_copied: "\n({count} row(s) copied to clipboard)"
-    clipboard_failed: "\nCould not copy to clipboard. Showing table instead:"
-    config_not_found: "Config file not found: {path}"
+    discarded: '  Discarded.'
+    confirmed_title: '
+
+      === Confirmed transactions ==='
+    confirmed_count: '
+
+      ({count} row(s) confirmed)'
+    clipboard_copied: '
+
+      ({count} row(s) copied to clipboard)'
+    clipboard_failed: '
+
+      Could not copy to clipboard. Showing table instead:'
+    config_not_found: 'Config file not found: {path}'
     config_hint: Create one based on config.yaml.example
-    help_commands_header: "Commands:"
-    help_field_codes_header: "Field codes:"
-    help_examples_header: "Examples:"
+    help_commands_header: 'Commands:'
+    help_field_codes_header: 'Field codes:'
+    help_examples_header: 'Examples:'
     help_confirm_desc: Confirm and save all rows
     help_quit_desc: Quit (discard this parse)
     help_retry_desc: Edit raw text and re-parse
-    help_edit_desc: "Edit a field (e.g., {example})"
-    help_delete_desc: "Delete a row (e.g., {example})"
+    help_edit_desc: Edit a field (e.g., {example})
+    help_delete_desc: Delete a row (e.g., {example})
     help_add_desc: Add a new empty row
     help_help_desc: Show this help
     help_save_note_desc: Save as note (keep the text for reference)
     help_skip_desc: Skip (discard this input)
-    help_items_header: "Known items:"
-    help_aliases_header: "Aliases:"
-    save_conversion_prompt: "Save unit conversion? 1 {container} of {item} = ? "
-    conversion_saved: "  Saved: 1 {container} of {item} = {factor}"
+    help_items_header: 'Known items:'
+    help_aliases_header: 'Aliases:'
+    save_conversion_prompt: 'Save unit conversion? 1 {container} of {item} = ? '
+    conversion_saved: '  Saved: 1 {container} of {item} = {factor}'
     cmd_alias: alias
     cmd_convert: convert
-    alias_short_prompt: "Alias (short name): "
-    alias_maps_to_prompt: "Maps to: "
-    alias_saved: "  Saved: {alias} \u2192 {item}"
-    convert_item_prompt: "Item name: "
-    convert_container_prompt: "Container name: "
-    convert_factor_prompt: "How many units in 1 {container}: "
-    fuzzy_confirm: "  \u2192 {resolved}? [{yes}/{no}] "
-    help_locations_header: "Known locations:"
-
-unit_conversions:
-  cherry tomatoes:
-    base_unit: count
-    small box: 990
-    box: 1980
-  sweet cherry tomatoes:
-    base_unit: count
-    small box: 990
-    box: 1980
-  small potatoes:
-    base_unit: count
-    box: 920
+    alias_short_prompt: 'Alias (short name): '
+    alias_maps_to_prompt: 'Maps to: '
+    alias_saved: '  Saved: {alias} → {item}'
+    convert_item_prompt: 'Item name: '
+    convert_container_prompt: 'Container name: '
+    convert_factor_prompt: 'How many units in 1 {container}: '
+    fuzzy_confirm: '  → {resolved}? [{yes}/{no}] '
+    help_locations_header: 'Known locations:'
+google_sheets:
+  credentials_file: client_secret.json
+  token_file: token.json
+  spreadsheet_id: 1nUwG87fqrOz7t0_5PErzMSPPtZ3hzenzd0aJ2nRJMuE
+  input:
+    items:
+      sheet: Reference Data
+      range: A2:A
+    locations:
+      sheet: Reference Data
+      range: B2:B
+    transaction_types:
+      sheet: Reference Data
+      range: C2:C
+    action_verbs:
+      sheet: Reference Data
+      range: D2:E
+    aliases:
+      sheet: Aliases
+      range: A2:B
+    unit_conversions:
+      sheet: Conversions
+      range: A2:C
+  output:
+    transactions:
+      sheet: Transactions
+    aliases:
+      sheet: Aliases
+    unit_conversions:
+      sheet: Conversions
