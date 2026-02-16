@@ -445,6 +445,12 @@ def _extract_qty(text, config):
         cont, remaining = _extract_container(remaining, config)
         return qty, cont, remaining
 
+    # No number found — still try to extract a container (e.g. "קופסה שרי" = "a box of cherry tomatoes")
+    # If a container is found, default qty to 1
+    cont, after_cont = _extract_container(remaining, config)
+    if cont:
+        return 1, cont, after_cont
+
     return None, None, text
 
 

@@ -6,16 +6,20 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+fun gitSha(): String =
+    providers.exec { commandLine("git", "rev-parse", "HEAD") }
+        .standardOutput.asText.get().trim()
+
 android {
     namespace = "com.inventory.app"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.inventory.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = gitSha()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -59,20 +63,26 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        resources {
+            excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES")
+        }
+    }
 }
 
 dependencies {
     implementation(project(":parser"))
 
-    // Compose
-    val composeBom = platform("androidx.compose:compose-bom:2025.01.01")
+    // Compose (BOM 2024.06.00 is last to target compileSdk 34)
+    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
@@ -82,25 +92,26 @@ dependencies {
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.1.2")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Google Sheets API
     implementation("com.google.api-client:google-api-client-android:2.7.1")
     implementation("com.google.apis:google-api-services-sheets:v4-rev20241001-2.0.0")
     implementation("com.google.auth:google-auth-library-oauth2-http:1.30.1")
-    implementation("com.google.android.gms:play-services-auth:21.3.0")
-    implementation("androidx.credentials:credentials:1.5.0-rc01")
-    implementation("androidx.credentials:credentials-play-services-auth:1.5.0-rc01")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
-    // OkHttp + Gson
+    // OkHttp + Gson + YAML
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.yaml:snakeyaml:2.3")
 
     // Core
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

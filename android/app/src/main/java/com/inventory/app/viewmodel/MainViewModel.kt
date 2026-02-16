@@ -1,10 +1,14 @@
 package com.inventory.app.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventory.app.BuildConfig
 import com.inventory.app.data.ConfigRepository
 import com.inventory.app.sheets.AuthManager
 import com.inventory.app.sheets.SheetsRepository
+import com.inventory.app.update.UpdateChecker
+import com.inventory.app.update.UpdateResult
 import com.inventory.parser.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -29,6 +33,7 @@ class MainViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
     private val sheetsRepository: SheetsRepository,
     val authManager: AuthManager,
+    private val updateChecker: UpdateChecker,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ParseState())
@@ -122,6 +127,20 @@ class MainViewModel @Inject constructor(
         _state.update { ParseState() }
     }
 
+    /** Go back to editing: keep inputText, clear parse results */
+    fun retry() {
+        _state.update { it.copy(
+            rows = emptyList(),
+            notes = emptyList(),
+            unparseable = emptyList(),
+            originalTokens = emptyMap(),
+            isParsed = false,
+            aliasPrompts = emptyList(),
+            conversionPrompts = emptyList(),
+            sheetWriteStatus = null,
+        ) }
+    }
+
     fun resetAfterConfirm() {
         _state.update { ParseState() }
     }
@@ -201,6 +220,58 @@ class MainViewModel @Inject constructor(
                 }
             } catch (_: Exception) {
                 // Silently fail — local config is still usable
+            }
+        }
+    }
+
+    fun loadYamlConfig(uri: Uri, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val error = configRepository.loadFromYamlUri(uri)
+            onResult(error)
+        }
+    }
+
+    private fun githubToken(): String? {
+        return (config.value["github_token"] as? String)?.ifBlank { null }
+    }
+
+    fun checkForUpdate(onResult: (UpdateResult) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val result = updateChecker.checkForUpdate(
+                    owner = "yehudareisler",
+                    repo = "inventory-parser",
+                    currentVersionName = BuildConfig.VERSION_NAME,
+                    token = githubToken(),
+                )
+                onResult(result)
+            } catch (e: Exception) {
+                onResult(UpdateResult(
+                    available = false,
+                    currentTag = BuildConfig.VERSION_NAME,
+                    latestTag = "error: ${e.message}",
+                ))
+            }
+        }
+    }
+
+    fun downloadUpdate(assetId: Long, onResult: (Boolean, String) -> Unit) {
+        val token = githubToken()
+        if (token == null) {
+            onResult(false, "No GitHub token configured")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                updateChecker.downloadApk(
+                    owner = "yehudareisler",
+                    repo = "inventory-parser",
+                    assetId = assetId,
+                    token = token,
+                )
+                onResult(true, "Download started — check notifications")
+            } catch (e: Exception) {
+                onResult(false, "Download failed: ${e.message}")
             }
         }
     }

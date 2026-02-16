@@ -24,6 +24,7 @@ data class ReleaseAsset(
     val name: String,
     @SerializedName("browser_download_url") val downloadUrl: String,
     val size: Long,
+    val id: Long,
 )
 
 data class UpdateResult(
@@ -31,47 +32,56 @@ data class UpdateResult(
     val currentTag: String,
     val latestTag: String,
     val apkUrl: String? = null,
+    val apkAssetId: Long? = null,
     val releaseName: String? = null,
 )
 
 /**
  * Checks GitHub Releases for newer builds and triggers APK download.
+ * Supports private repos via a GitHub personal access token.
  */
 @Singleton
 class UpdateChecker @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    // Client that does NOT follow redirects — we need the signed redirect URL
+    private val noRedirectClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .build()
     private val client = OkHttpClient()
     private val gson = Gson()
 
     /**
      * Check if a newer release exists on GitHub.
-     * Compares the latest release tag against the app's BuildConfig.VERSION_NAME.
+     * For private repos, pass a GitHub PAT as [token].
      */
     suspend fun checkForUpdate(
         owner: String,
         repo: String,
         currentVersionName: String,
+        token: String? = null,
     ): UpdateResult = withContext(Dispatchers.IO) {
         val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
-        val request = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(url)
             .header("Accept", "application/vnd.github+json")
-            .build()
+        if (!token.isNullOrBlank()) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
 
-        val response = client.newCall(request).execute()
+        val response = client.newCall(reqBuilder.build()).execute()
         if (!response.isSuccessful) {
             return@withContext UpdateResult(
                 available = false,
                 currentTag = currentVersionName,
-                latestTag = "unknown",
+                latestTag = if (response.code == 404) "no releases (or bad token)" else "HTTP ${response.code}",
             )
         }
 
         val body = response.body?.string() ?: return@withContext UpdateResult(
             available = false,
             currentTag = currentVersionName,
-            latestTag = "unknown",
+            latestTag = "empty response",
         )
 
         val release = gson.fromJson(body, ReleaseInfo::class.java)
@@ -84,23 +94,46 @@ class UpdateChecker @Inject constructor(
             currentTag = currentVersionName,
             latestTag = release.tagName,
             apkUrl = apkAsset?.downloadUrl,
+            apkAssetId = apkAsset?.id,
             releaseName = release.name,
         )
     }
 
     /**
-     * Start downloading the APK via Android DownloadManager.
-     * Returns the download ID for tracking.
+     * Download APK from a private repo release asset.
+     * Uses the GitHub API to get a signed redirect URL, then hands it to DownloadManager.
      */
-    fun downloadApk(apkUrl: String, fileName: String = "inventory-parser-update.apk"): Long {
+    suspend fun downloadApk(
+        owner: String,
+        repo: String,
+        assetId: Long,
+        token: String,
+        fileName: String = "inventory-parser-update.apk",
+    ): Long = withContext(Dispatchers.IO) {
+        // Request the asset with octet-stream accept → GitHub returns 302 to a signed S3 URL
+        val apiUrl = "https://api.github.com/repos/$owner/$repo/releases/assets/$assetId"
+        val request = Request.Builder()
+            .url(apiUrl)
+            .header("Accept", "application/octet-stream")
+            .header("Authorization", "Bearer $token")
+            .build()
+
+        val response = noRedirectClient.newCall(request).execute()
+        val signedUrl = if (response.isRedirect) {
+            response.header("Location") ?: throw Exception("No redirect URL")
+        } else {
+            throw Exception("Expected redirect, got ${response.code}")
+        }
+
+        // DownloadManager can handle the signed URL without auth
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val request = DownloadManager.Request(Uri.parse(apkUrl))
+        val dmRequest = DownloadManager.Request(Uri.parse(signedUrl))
             .setTitle("Inventory Parser Update")
             .setDescription("Downloading new version...")
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setMimeType("application/vnd.android.package-archive")
 
-        return dm.enqueue(request)
+        dm.enqueue(dmRequest)
     }
 }

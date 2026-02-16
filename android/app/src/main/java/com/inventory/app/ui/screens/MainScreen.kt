@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.inventory.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -21,7 +22,23 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val config by viewModel.config.collectAsState()
     val ui by viewModel.uiStrings.collectAsState()
+
+    // Alias dialog state
+    var showAliasDialog by remember { mutableStateOf(false) }
+    var aliasShort by remember { mutableStateOf("") }
+    var aliasMapsTo by remember { mutableStateOf("") }
+
+    // Convert dialog state
+    var showConvertDialog by remember { mutableStateOf(false) }
+    var convertItem by remember { mutableStateOf("") }
+    var convertContainer by remember { mutableStateOf("") }
+    var convertFactor by remember { mutableStateOf("") }
+
+    // Snackbar
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -33,7 +50,8 @@ fun MainScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -42,21 +60,21 @@ fun MainScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Input field
+            // Input field — compact height so results are visible below
             OutlinedTextField(
                 value = state.inputText,
                 onValueChange = { viewModel.updateInput(it) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp),
+                    .heightIn(min = 100.dp, max = 200.dp),
                 label = { Text("Paste WhatsApp message") },
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-                maxLines = Int.MAX_VALUE,
+                maxLines = 10,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Parse button
+            // Buttons row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -64,9 +82,6 @@ fun MainScreen(
                 Button(
                     onClick = {
                         viewModel.parse()
-                        if (viewModel.state.value.rows.isNotEmpty()) {
-                            onNavigateToReview()
-                        }
                     },
                     modifier = Modifier.weight(1f),
                     enabled = state.inputText.isNotBlank(),
@@ -74,59 +89,103 @@ fun MainScreen(
                     Text(ui.s("review_parse_btn"))
                 }
 
-                // Quick action buttons
-                OutlinedButton(onClick = { /* TODO: alias dialog */ }) {
+                OutlinedButton(onClick = { showAliasDialog = true }) {
                     Text(ui.s("cmd_alias"))
                 }
-                OutlinedButton(onClick = { /* TODO: convert dialog */ }) {
+                OutlinedButton(onClick = { showConvertDialog = true }) {
                     Text(ui.s("cmd_convert"))
                 }
             }
 
-            // Show parse summary if parsed with no rows
-            if (state.isParsed && state.rows.isEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
+            // Parse results — shown inline below the input
+            if (state.isParsed) {
+                Spacer(modifier = Modifier.height(12.dp))
 
+                // Notes
                 if (state.notes.isNotEmpty()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                ui.s("note_prefix"),
-                                style = MaterialTheme.typography.titleSmall
-                            )
+                        Column(modifier = Modifier.padding(12.dp)) {
                             for (note in state.notes) {
-                                Text(note, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "${ui.s("note_prefix")}: $note",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
+                // Unparseable
                 if (state.unparseable.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                ui.s("unparseable_prefix"),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                        Column(modifier = Modifier.padding(12.dp)) {
                             for (line in state.unparseable) {
                                 Text(
-                                    line,
+                                    "${ui.s("unparseable_prefix")}: $line",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                if (state.notes.isEmpty() && state.unparseable.isEmpty()) {
+                // Rows summary + action buttons
+                if (state.rows.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                "${state.rows.size} rows parsed",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            // Show a compact preview of each row
+                            for ((idx, row) in state.rows.withIndex()) {
+                                val item = row["inv_type"]?.toString() ?: "???"
+                                val qty = row["qty"]?.toString() ?: "?"
+                                val loc = row["vehicle_sub_unit"]?.toString() ?: ""
+                                Text(
+                                    "${idx + 1}. $item  $qty  $loc",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Review & Edit button
+                        Button(
+                            onClick = onNavigateToReview,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(ui.s("review_confirm_btn"))
+                        }
+
+                        // Discard
+                        OutlinedButton(onClick = { viewModel.discard() }) {
+                            Text(ui.s("help_quit_desc").take(5))
+                        }
+                    }
+                } else if (state.notes.isEmpty() && state.unparseable.isEmpty()) {
                     Text(
                         ui.s("no_transactions"),
                         style = MaterialTheme.typography.bodyLarge,
@@ -135,5 +194,117 @@ fun MainScreen(
                 }
             }
         }
+    }
+
+    // Alias dialog
+    if (showAliasDialog) {
+        AlertDialog(
+            onDismissRequest = { showAliasDialog = false },
+            title = { Text(ui.s("cmd_alias")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = aliasShort,
+                        onValueChange = { aliasShort = it },
+                        label = { Text(ui.s("alias_short_prompt").trimEnd(' ', ':')) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = aliasMapsTo,
+                        onValueChange = { aliasMapsTo = it },
+                        label = { Text(ui.s("alias_maps_to_prompt").trimEnd(' ', ':')) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (aliasShort.isNotBlank() && aliasMapsTo.isNotBlank()) {
+                        viewModel.saveAlias(aliasShort.trim(), aliasMapsTo.trim())
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                ui.s("alias_saved", "alias" to aliasShort.trim(), "item" to aliasMapsTo.trim())
+                            )
+                        }
+                        aliasShort = ""
+                        aliasMapsTo = ""
+                        showAliasDialog = false
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    aliasShort = ""
+                    aliasMapsTo = ""
+                    showAliasDialog = false
+                }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // Convert dialog
+    if (showConvertDialog) {
+        AlertDialog(
+            onDismissRequest = { showConvertDialog = false },
+            title = { Text(ui.s("cmd_convert")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = convertItem,
+                        onValueChange = { convertItem = it },
+                        label = { Text(ui.s("convert_item_prompt").trimEnd(' ', ':')) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = convertContainer,
+                        onValueChange = { convertContainer = it },
+                        label = { Text(ui.s("convert_container_prompt").trimEnd(' ', ':')) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = convertFactor,
+                        onValueChange = { convertFactor = it },
+                        label = {
+                            Text(ui.s("convert_factor_prompt", "container" to convertContainer.ifBlank { "..." }).trimEnd(' ', ':'))
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val factor = convertFactor.toIntOrNull()
+                    if (convertItem.isNotBlank() && convertContainer.isNotBlank() && factor != null) {
+                        viewModel.saveConversion(convertItem.trim(), convertContainer.trim(), factor)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                ui.s("conversion_saved",
+                                    "container" to convertContainer.trim(),
+                                    "item" to convertItem.trim(),
+                                    "factor" to factor.toString(),
+                                )
+                            )
+                        }
+                        convertItem = ""
+                        convertContainer = ""
+                        convertFactor = ""
+                        showConvertDialog = false
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    convertItem = ""
+                    convertContainer = ""
+                    convertFactor = ""
+                    showConvertDialog = false
+                }) { Text("Cancel") }
+            },
+        )
     }
 }

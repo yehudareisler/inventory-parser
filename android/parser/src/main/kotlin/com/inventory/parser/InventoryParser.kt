@@ -498,6 +498,13 @@ private fun extractQty(text: String, config: Map<String, Any?>): QtyResult {
         return QtyResult(qty, cont, afterCont)
     }
 
+    // No number found — still try to extract a container (e.g. "קופסה שרי" = "a box of cherry tomatoes")
+    // If a container is found, default qty to 1
+    val (cont, afterCont) = extractContainer(remaining, config)
+    if (cont != null) {
+        return QtyResult(1, cont, afterCont)
+    }
+
     return QtyResult(null, null, text)
 }
 

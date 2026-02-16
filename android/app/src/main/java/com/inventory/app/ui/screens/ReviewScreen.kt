@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.inventory.app.ui.components.RowTable
 import com.inventory.app.viewmodel.MainViewModel
 import com.inventory.parser.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +39,61 @@ fun ReviewScreen(
     var showConvDialog by remember { mutableStateOf(false) }
     var convFactor by remember { mutableStateOf("") }
 
+    // Snackbar
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    fun showSnackbar(message: String) {
+        scope.launch {
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    // Confirm action: check learning, then write to sheet (or show status)
+    fun doConfirm() {
+        viewModel.checkLearningOpportunities()
+        val s = viewModel.state.value
+        if (s.aliasPrompts.isNotEmpty()) {
+            aliasIdx = 0
+            showAliasDialog = true
+        } else if (s.conversionPrompts.isNotEmpty()) {
+            convIdx = 0
+            showConvDialog = true
+        } else {
+            viewModel.writeToSheet { success, message ->
+                if (success) {
+                    viewModel.resetAfterConfirm()
+                    onBack()
+                } else {
+                    // Show what we parsed so the user can verify
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Sheets: $message. ${s.rows.size} row(s) parsed OK.",
+                            duration = SnackbarDuration.Long,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Called after all alias/conv dialogs finish
+    fun finishConfirm() {
+        viewModel.writeToSheet { success, message ->
+            if (success) {
+                viewModel.resetAfterConfirm()
+                onBack()
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        message = "Sheets: $message. ${viewModel.state.value.rows.size} row(s) parsed OK.",
+                        duration = SnackbarDuration.Long,
+                    )
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -57,6 +113,7 @@ fun ReviewScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             BottomAppBar {
                 Row(
@@ -67,31 +124,16 @@ fun ReviewScreen(
                 ) {
                     // Write to Sheet
                     Button(
-                        onClick = {
-                            viewModel.checkLearningOpportunities()
-                            val s = viewModel.state.value
-                            if (s.aliasPrompts.isNotEmpty()) {
-                                aliasIdx = 0
-                                showAliasDialog = true
-                            } else if (s.conversionPrompts.isNotEmpty()) {
-                                convIdx = 0
-                                showConvDialog = true
-                            } else {
-                                viewModel.writeToSheet { _, _ ->
-                                    viewModel.resetAfterConfirm()
-                                    onBack()
-                                }
-                            }
-                        },
+                        onClick = { doConfirm() },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(ui.s("sheet_btn"))
                     }
 
-                    // Retry
+                    // Retry (re-edit) — preserves input text
                     OutlinedButton(
                         onClick = {
-                            viewModel.discard()
+                            viewModel.retry()
                             onBack()
                         },
                     ) {
@@ -216,9 +258,7 @@ fun ReviewScreen(
     if (showAliasDialog && aliasIdx < state.aliasPrompts.size) {
         val (original, canonical) = state.aliasPrompts[aliasIdx]
         AlertDialog(
-            onDismissRequest = {
-                showAliasDialog = false
-            },
+            onDismissRequest = { showAliasDialog = false },
             title = { Text("Save alias?") },
             text = { Text(ui.s("save_alias_prompt", "original" to original, "canonical" to canonical)) },
             confirmButton = {
@@ -232,10 +272,7 @@ fun ReviewScreen(
                             convIdx = 0
                             showConvDialog = true
                         } else {
-                            viewModel.writeToSheet { _, _ ->
-                                viewModel.resetAfterConfirm()
-                                onBack()
-                            }
+                            finishConfirm()
                         }
                     }
                 }) { Text(ui.commands["yes"]?.uppercase() ?: "Y") }
@@ -250,10 +287,7 @@ fun ReviewScreen(
                             convIdx = 0
                             showConvDialog = true
                         } else {
-                            viewModel.writeToSheet { _, _ ->
-                                viewModel.resetAfterConfirm()
-                                onBack()
-                            }
+                            finishConfirm()
                         }
                     }
                 }) { Text(ui.commands["no"]?.uppercase() ?: "N") }
@@ -289,10 +323,7 @@ fun ReviewScreen(
                     convIdx++
                     if (convIdx >= state.conversionPrompts.size) {
                         showConvDialog = false
-                        viewModel.writeToSheet { _, _ ->
-                            viewModel.resetAfterConfirm()
-                            onBack()
-                        }
+                        finishConfirm()
                     }
                 }) { Text("Save") }
             },
@@ -302,10 +333,7 @@ fun ReviewScreen(
                     convIdx++
                     if (convIdx >= state.conversionPrompts.size) {
                         showConvDialog = false
-                        viewModel.writeToSheet { _, _ ->
-                            viewModel.resetAfterConfirm()
-                            onBack()
-                        }
+                        finishConfirm()
                     }
                 }) { Text("Skip") }
             },

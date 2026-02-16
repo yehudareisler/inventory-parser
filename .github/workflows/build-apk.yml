@@ -75,3 +75,7 @@ jobs:
       - name: Run parser tests
         working-directory: android
         run: ./gradlew :parser:test
+
+      - name: Run app unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest

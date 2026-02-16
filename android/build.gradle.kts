@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application") version "8.8.2" apply false
-    id("com.android.library") version "8.8.2" apply false
+    id("com.android.application") version "8.4.0" apply false
+    id("com.android.library") version "8.4.0" apply false
     kotlin("android") version "2.1.0" apply false
     kotlin("jvm") version "2.1.0" apply false
     id("com.google.dagger.hilt.android") version "2.53.1" apply false

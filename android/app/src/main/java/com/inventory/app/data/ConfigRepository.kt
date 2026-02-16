@@ -8,9 +8,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.yaml.snakeyaml.Yaml
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -92,6 +94,25 @@ class ConfigRepository @Inject constructor(
             itemConvs[container] = factor
             convs[item] = itemConvs
             config["unit_conversions"] = convs
+        }
+    }
+
+    /**
+     * Load config from a YAML file URI (via document picker).
+     * Replaces the entire config with the parsed YAML contents.
+     * Returns null on success, or an error message on failure.
+     */
+    suspend fun loadFromYamlUri(uri: Uri): String? {
+        return try {
+            val yaml = Yaml()
+            val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: return "Could not read file"
+            @Suppress("UNCHECKED_CAST")
+            val parsed = yaml.load<Map<String, Any?>>(text) ?: return "Empty YAML file"
+            saveConfig(parsed)
+            null
+        } catch (e: Exception) {
+            "YAML error: ${e.message}"
         }
     }
 }
