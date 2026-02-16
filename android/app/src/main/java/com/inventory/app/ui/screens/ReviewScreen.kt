@@ -77,9 +77,10 @@ fun ReviewScreen(
                                 convIdx = 0
                                 showConvDialog = true
                             } else {
-                                // TODO: write to sheet via SheetsRepository
-                                viewModel.resetAfterConfirm()
-                                onBack()
+                                viewModel.writeToSheet { _, _ ->
+                                    viewModel.resetAfterConfirm()
+                                    onBack()
+                                }
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -231,8 +232,10 @@ fun ReviewScreen(
                             convIdx = 0
                             showConvDialog = true
                         } else {
-                            viewModel.resetAfterConfirm()
-                            onBack()
+                            viewModel.writeToSheet { _, _ ->
+                                viewModel.resetAfterConfirm()
+                                onBack()
+                            }
                         }
                     }
                 }) { Text(ui.commands["yes"]?.uppercase() ?: "Y") }
@@ -247,8 +250,10 @@ fun ReviewScreen(
                             convIdx = 0
                             showConvDialog = true
                         } else {
-                            viewModel.resetAfterConfirm()
-                            onBack()
+                            viewModel.writeToSheet { _, _ ->
+                                viewModel.resetAfterConfirm()
+                                onBack()
+                            }
                         }
                     }
                 }) { Text(ui.commands["no"]?.uppercase() ?: "N") }
@@ -284,8 +289,10 @@ fun ReviewScreen(
                     convIdx++
                     if (convIdx >= state.conversionPrompts.size) {
                         showConvDialog = false
-                        viewModel.resetAfterConfirm()
-                        onBack()
+                        viewModel.writeToSheet { _, _ ->
+                            viewModel.resetAfterConfirm()
+                            onBack()
+                        }
                     }
                 }) { Text("Save") }
             },
@@ -295,8 +302,10 @@ fun ReviewScreen(
                     convIdx++
                     if (convIdx >= state.conversionPrompts.size) {
                         showConvDialog = false
-                        viewModel.resetAfterConfirm()
-                        onBack()
+                        viewModel.writeToSheet { _, _ ->
+                            viewModel.resetAfterConfirm()
+                            onBack()
+                        }
                     }
                 }) { Text("Skip") }
             },

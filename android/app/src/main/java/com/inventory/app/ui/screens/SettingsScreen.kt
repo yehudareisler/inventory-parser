@@ -21,6 +21,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val config by viewModel.config.collectAsState()
+    val authState by viewModel.authManager.authState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -41,6 +42,54 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // Google Sheets connection
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Google Sheets", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (authState.isSignedIn) {
+                            Text("Signed in as: ${authState.email ?: "Unknown"}")
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedButton(onClick = { viewModel.authManager.signOut() }) {
+                                Text("Sign out")
+                            }
+                        } else {
+                            Text("Not signed in")
+                            if (authState.error != null) {
+                                Text(
+                                    "Error: ${authState.error}",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        @Suppress("UNCHECKED_CAST")
+                        val gs = config["google_sheets"] as? Map<String, Any?> ?: emptyMap()
+                        val spreadsheetId = gs["spreadsheet_id"] as? String ?: ""
+                        var sheetId by remember(spreadsheetId) { mutableStateOf(spreadsheetId) }
+
+                        OutlinedTextField(
+                            value = sheetId,
+                            onValueChange = {
+                                sheetId = it
+                                @Suppress("UNCHECKED_CAST")
+                                val current = (config["google_sheets"] as? Map<String, Any?>)?.toMutableMap() ?: mutableMapOf()
+                                current["spreadsheet_id"] = it
+                                viewModel.updateConfigField("google_sheets", current)
+                            },
+                            label = { Text("Spreadsheet ID") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                    }
+                }
+            }
+
             // Default source
             item {
                 val defaultSource = config["default_source"] as? String ?: "warehouse"
